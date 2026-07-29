@@ -1,0 +1,11 @@
+{
+  "name": "@syncroom/server",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node -e \"console.log('Server application has not been scaffolded yet.')\"",
+    "build": "node -e \"console.log('Server build is not configured yet.')\"",
+    "typecheck": "node -e \"console.log('Server type checking is not configured yet.')\"",
+    "test": "node -e \"console.log('Server tests are not configured yet.')\""
+  }
+}

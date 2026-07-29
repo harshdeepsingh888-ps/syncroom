@@ -1,0 +1,20 @@
+{
+  "name": "syncroom",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A server-authoritative real-time YouTube watch party application.",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev:client": "npm run dev --workspace client",
+    "dev:server": "npm run dev --workspace server",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
