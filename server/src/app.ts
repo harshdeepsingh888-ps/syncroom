@@ -1,23 +1,27 @@
 import cors from "cors";
 import express, {
-  type Express,
   type NextFunction,
   type Request,
   type Response,
 } from "express";
 import helmet from "helmet";
+import pino from "pino";
 import { pinoHttp } from "pino-http";
 
 import { env } from "./config/env.js";
 
-export function createApp(): Express {
+const logger = pino({
+  name: "syncroom-server",
+});
+
+export function createApp(): express.Express {
   const app = express();
 
   app.disable("x-powered-by");
 
   app.use(
     pinoHttp({
-      quietReqLogger: true,
+      logger,
     }),
   );
 
@@ -26,11 +30,11 @@ export function createApp(): Express {
   app.use(
     cors({
       origin: env.CLIENT_ORIGIN,
-      methods: ["GET", "POST"],
+      credentials: true,
     }),
   );
 
-  app.use(express.json({ limit: "100kb" }));
+  app.use(express.json({ limit: "1mb" }));
 
   app.get("/health", (_request: Request, response: Response) => {
     response.status(200).json({
@@ -58,16 +62,16 @@ export function createApp(): Express {
     ) => {
       request.log.error(
         {
-          error,
+          err: error,
           method: request.method,
-          path: request.path,
+          url: request.originalUrl,
         },
         "Unhandled request error",
       );
 
       response.status(500).json({
         error: {
-          code: "INTERNAL_ERROR",
+          code: "INTERNAL_SERVER_ERROR",
           message: "An unexpected server error occurred.",
         },
       });
