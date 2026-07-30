@@ -9,7 +9,7 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
-    "test": "node -e \"console.log('Server tests are not configured yet.')\""
+    "test": "node --import tsx --test src/realtime/realtime.integration.test.ts"
   },
   "engines": {
     "node": ">=22"

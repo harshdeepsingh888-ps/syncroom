@@ -9,9 +9,21 @@ import {
 
 export function registerConnectionHandlers(
   socket: Socket,
-  _logger: Logger,
+  logger: Logger,
 ): void {
+  logger.info(
+    {
+      event: "socket_connected",
+      socketId: socket.id,
+    },
+    "Realtime client connected.",
+  );
+
   registerRoomHandlers(socket);
   registerPlaybackHandlers(socket);
-  registerParticipantHandlers(socket);
+
+  registerParticipantHandlers(
+    socket,
+    logger,
+  );
 }

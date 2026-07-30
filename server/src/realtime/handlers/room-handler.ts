@@ -1,14 +1,10 @@
 import type { Socket } from "socket.io";
 
+import { roomService } from "../../modules/rooms/room-container.js";
 import type {
   ParticipantRole,
   PlaybackState,
 } from "../../modules/rooms/domain/index.js";
-import { InMemoryRoomRepository } from "../../modules/rooms/repository/index.js";
-import { RoomService } from "../../modules/rooms/service/index.js";
-
-const roomRepository = new InMemoryRoomRepository();
-const roomService = new RoomService(roomRepository);
 
 type CreateRoomPayload = {
   displayName: string;
@@ -17,12 +13,6 @@ type CreateRoomPayload = {
 type JoinRoomPayload = {
   roomId: string;
   displayName: string;
-};
-
-type ParticipantSummary = {
-  id: string;
-  displayName: string;
-  role: ParticipantRole;
 };
 
 type RoomCreateAckResponse =
@@ -46,25 +36,40 @@ type RoomJoinAckResponse =
       role: ParticipantRole;
       roomVersion: number;
       playback: PlaybackState;
-      participants: ParticipantSummary[];
+      participants: Array<{
+        id: string;
+        displayName: string;
+        role: ParticipantRole;
+      }>;
     }
   | {
       success: false;
-      code: "INVALID_PAYLOAD" | "ROOM_NOT_FOUND" | "ROOM_FULL";
+      code:
+        | "INVALID_PAYLOAD"
+        | "ROOM_NOT_FOUND"
+        | "ROOM_FULL";
       message: string;
     };
 
-type RoomCreateAck = (response: RoomCreateAckResponse) => void;
-type RoomJoinAck = (response: RoomJoinAckResponse) => void;
+type RoomCreateAck = (
+  response: RoomCreateAckResponse,
+) => void;
 
-export function registerRoomHandlers(socket: Socket): void {
+type RoomJoinAck = (
+  response: RoomJoinAckResponse,
+) => void;
+
+export function registerRoomHandlers(
+  socket: Socket,
+): void {
   socket.on(
     "room:create",
     async (
       payload: CreateRoomPayload,
       ack: RoomCreateAck,
     ): Promise<void> => {
-      const displayName = payload?.displayName?.trim();
+      const displayName =
+        payload?.displayName?.trim();
 
       if (!displayName) {
         ack({
@@ -76,10 +81,11 @@ export function registerRoomHandlers(socket: Socket): void {
         return;
       }
 
-      const { room, host } = roomService.createRoom({
-        socketId: socket.id,
-        displayName,
-      });
+      const { room, host } =
+        roomService.createRoom({
+          socketId: socket.id,
+          displayName,
+        });
 
       await socket.join(room.id);
 
@@ -99,13 +105,15 @@ export function registerRoomHandlers(socket: Socket): void {
       ack: RoomJoinAck,
     ): Promise<void> => {
       const roomId = payload?.roomId?.trim();
-      const displayName = payload?.displayName?.trim();
+      const displayName =
+        payload?.displayName?.trim();
 
       if (!roomId || !displayName) {
         ack({
           success: false,
           code: "INVALID_PAYLOAD",
-          message: "Room ID and display name are required.",
+          message:
+            "Room ID and display name are required.",
         });
 
         return;
@@ -129,7 +137,7 @@ export function registerRoomHandlers(socket: Socket): void {
 
       await socket.join(result.room.id);
 
-      const participants: ParticipantSummary[] = Array.from(
+      const participants = Array.from(
         result.room.participants.values(),
       ).map((participant) => ({
         id: participant.id,
@@ -147,15 +155,18 @@ export function registerRoomHandlers(socket: Socket): void {
         participants,
       });
 
-      socket.to(result.room.id).emit("participant:joined", {
-        roomId: result.room.id,
-        roomVersion: result.room.roomVersion,
-        participant: {
-          id: result.participant.id,
-          displayName: result.participant.displayName,
-          role: result.participant.role,
-        },
-      });
+      socket
+        .to(result.room.id)
+        .emit("participant:joined", {
+          roomId: result.room.id,
+          roomVersion: result.room.roomVersion,
+          participant: {
+            id: result.participant.id,
+            displayName:
+              result.participant.displayName,
+            role: result.participant.role,
+          },
+        });
     },
   );
 }

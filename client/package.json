@@ -2,10 +2,33 @@
   "name": "@syncroom/client",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
-    "dev": "node -e \"console.log('Client application has not been scaffolded yet.')\"",
-    "build": "node -e \"console.log('Client build is not configured yet.')\"",
-    "typecheck": "node -e \"console.log('Client type checking is not configured yet.')\"",
-    "test": "node -e \"console.log('Client tests are not configured yet.')\""
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
+    "lint": "eslint .",
+    "test": "node -e \"console.log('Client tests have not been configured yet.')\"",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "socket.io-client": "^4.8.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@types/youtube": "^0.3.0",
+    "@vitejs/plugin-react": "^6.0.3",
+    "eslint": "^10.6.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.3",
+    "globals": "^17.7.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.65.0",
+    "vite": "^8.1.1"
   }
 }

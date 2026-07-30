@@ -7,4 +7,8 @@ export type {
   JoinRoomInput,
   JoinRoomResult,
   JoinRoomSuccess,
+  UpdatePlaybackFailure,
+  UpdatePlaybackInput,
+  UpdatePlaybackResult,
+  UpdatePlaybackSuccess,
 } from "./room-service.js";

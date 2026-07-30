@@ -13,6 +13,10 @@ export class InMemoryRoomRepository implements RoomRepository {
     return this.rooms.get(roomId) ?? null;
   }
 
+  public findAll(): Room[] {
+    return Array.from(this.rooms.values());
+  }
+
   public deleteById(roomId: string): boolean {
     return this.rooms.delete(roomId);
   }
