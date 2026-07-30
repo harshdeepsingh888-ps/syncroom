@@ -1,12 +1,147 @@
 import type { Logger } from "pino";
 import type { Socket } from "socket.io";
+import { z } from "zod";
 
+import { PARTICIPANT_ROLES } from "../../modules/rooms/domain/index.js";
 import { roomService } from "../../modules/rooms/room-container.js";
+
+const assignRolePayloadSchema = z.object({
+  roomId: z.string().trim().min(1),
+  actorParticipantId: z.string().trim().min(1),
+  targetParticipantId: z.string().trim().min(1),
+  role: z.enum([
+    PARTICIPANT_ROLES.MODERATOR,
+    PARTICIPANT_ROLES.PARTICIPANT,
+  ]),
+});
+
+type AssignRoleSuccess = {
+  success: true;
+  roomId: string;
+  roomVersion: number;
+  participant: {
+    id: string;
+    displayName: string;
+    role: "moderator" | "participant";
+  };
+};
+
+type AssignRoleFailure = {
+  success: false;
+  code:
+    | "INVALID_PAYLOAD"
+    | "ROOM_NOT_FOUND"
+    | "PARTICIPANT_NOT_FOUND"
+    | "ROLE_FORBIDDEN"
+    | "INVALID_ROLE_TARGET";
+  message: string;
+};
+
+type AssignRoleResponse =
+  | AssignRoleSuccess
+  | AssignRoleFailure;
+
+type AssignRoleAck = (
+  response: AssignRoleResponse,
+) => void;
 
 export function registerParticipantHandlers(
   socket: Socket,
   logger: Logger,
 ): void {
+  socket.on(
+    "room:assign-role",
+    (payload: unknown, ack: unknown): void => {
+      const acknowledge =
+        getAssignRoleAck(ack);
+
+      if (acknowledge === null) {
+        socket.emit("realtime:error", {
+          code: "ACK_REQUIRED",
+          message:
+            "Role assignment requires an acknowledgement callback.",
+        });
+
+        return;
+      }
+
+      const parsedPayload =
+        assignRolePayloadSchema.safeParse(
+          payload,
+        );
+
+      if (!parsedPayload.success) {
+        acknowledge({
+          success: false,
+          code: "INVALID_PAYLOAD",
+          message:
+            "Room ID, acting participant ID, target participant ID, and a valid assignable role are required.",
+        });
+
+        return;
+      }
+
+      const result =
+        roomService.assignParticipantRole({
+          ...parsedPayload.data,
+          actorSocketId: socket.id,
+        });
+
+      if (!result.success) {
+        acknowledge({
+          success: false,
+          code: result.code,
+          message: result.message,
+        });
+
+        return;
+      }
+
+      const roleUpdatedEvent = {
+        roomId: result.room.id,
+        roomVersion:
+          result.room.roomVersion,
+        participant: {
+          id: result.participant.id,
+          displayName:
+            result.participant.displayName,
+          role: result.participant.role as
+            | "moderator"
+            | "participant",
+        },
+      };
+
+      acknowledge({
+        success: true,
+        ...roleUpdatedEvent,
+      });
+
+      socket.nsp
+        .to(result.room.id)
+        .emit(
+          "participant:role-updated",
+          roleUpdatedEvent,
+        );
+
+      logger.info(
+        {
+          event:
+            "participant_role_updated",
+          roomId: result.room.id,
+          actorParticipantId:
+            parsedPayload.data
+              .actorParticipantId,
+          targetParticipantId:
+            result.participant.id,
+          role: result.participant.role,
+          roomVersion:
+            result.room.roomVersion,
+        },
+        "Participant role updated.",
+      );
+    },
+  );
+
   socket.on("disconnect", (reason) => {
     const result =
       roomService.disconnectParticipant({
@@ -99,4 +234,14 @@ export function registerParticipantHandlers(
       );
     }
   });
+}
+
+function getAssignRoleAck(
+  value: unknown,
+): AssignRoleAck | null {
+  if (typeof value !== "function") {
+    return null;
+  }
+
+  return value as AssignRoleAck;
 }

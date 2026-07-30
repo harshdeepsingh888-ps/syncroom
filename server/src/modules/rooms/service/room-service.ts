@@ -5,6 +5,7 @@ import {
   PARTICIPANT_ROLES,
   PLAYBACK_STATUSES,
   type Participant,
+  type ParticipantRole,
   type PlaybackState,
   type Room,
 } from "../domain/index.js";
@@ -66,6 +67,37 @@ export type UpdatePlaybackFailure = {
 export type UpdatePlaybackResult =
   | UpdatePlaybackSuccess
   | UpdatePlaybackFailure;
+
+export type AssignParticipantRoleInput = {
+  roomId: string;
+  actorParticipantId: string;
+  actorSocketId: string;
+  targetParticipantId: string;
+  role: Extract<
+    ParticipantRole,
+    "moderator" | "participant"
+  >;
+};
+
+export type AssignParticipantRoleSuccess = {
+  success: true;
+  room: Room;
+  participant: Participant;
+};
+
+export type AssignParticipantRoleFailure = {
+  success: false;
+  code:
+    | "ROOM_NOT_FOUND"
+    | "PARTICIPANT_NOT_FOUND"
+    | "ROLE_FORBIDDEN"
+    | "INVALID_ROLE_TARGET";
+  message: string;
+};
+
+export type AssignParticipantRoleResult =
+  | AssignParticipantRoleSuccess
+  | AssignParticipantRoleFailure;
 
 export type DisconnectParticipantInput = {
   socketId: string;
@@ -218,6 +250,89 @@ export class RoomService {
     });
   }
 
+  public assignParticipantRole(
+    input: AssignParticipantRoleInput,
+  ): AssignParticipantRoleResult {
+    const room = this.roomRepository.findById(
+      input.roomId,
+    );
+
+    if (room === null) {
+      return {
+        success: false,
+        code: "ROOM_NOT_FOUND",
+        message:
+          "The requested room does not exist.",
+      };
+    }
+
+    const actor = room.participants.get(
+      input.actorParticipantId,
+    );
+
+    const target = room.participants.get(
+      input.targetParticipantId,
+    );
+
+    if (
+      actor === undefined ||
+      target === undefined
+    ) {
+      return {
+        success: false,
+        code: "PARTICIPANT_NOT_FOUND",
+        message:
+          "The acting or target participant does not belong to this room.",
+      };
+    }
+
+    if (
+      actor.id !== room.hostParticipantId ||
+      actor.socketId !== input.actorSocketId
+    ) {
+      return {
+        success: false,
+        code: "ROLE_FORBIDDEN",
+        message:
+          "Only the connected room host can assign participant roles.",
+      };
+    }
+
+    if (
+      target.id === room.hostParticipantId ||
+      target.role === PARTICIPANT_ROLES.HOST
+    ) {
+      return {
+        success: false,
+        code: "INVALID_ROLE_TARGET",
+        message:
+          "The room host role cannot be changed through role assignment.",
+      };
+    }
+
+    if (target.role === input.role) {
+      return {
+        success: true,
+        room,
+        participant: target,
+      };
+    }
+
+    const now = new Date().toISOString();
+
+    target.role = input.role;
+    room.roomVersion += 1;
+    room.updatedAt = now;
+
+    this.roomRepository.save(room);
+
+    return {
+      success: true,
+      room,
+      participant: target,
+    };
+  }
+
   public disconnectParticipant(
     input: DisconnectParticipantInput,
   ): DisconnectParticipantResult {
@@ -264,8 +379,7 @@ export class RoomService {
         disconnectedParticipant.id ===
         previousHostParticipantId
       ) {
-        newHost =
-          this.selectNextHost(room);
+        newHost = this.selectNextHost(room);
 
         if (newHost !== null) {
           newHost.role =
@@ -327,15 +441,18 @@ export class RoomService {
       };
     }
 
-    if (
-      participant.id !==
-      room.hostParticipantId
-    ) {
+    const canControlPlayback =
+      participant.id ===
+        room.hostParticipantId ||
+      participant.role ===
+        PARTICIPANT_ROLES.MODERATOR;
+
+    if (!canControlPlayback) {
       return {
         success: false,
         code: "PLAYBACK_FORBIDDEN",
         message:
-          "Only the room host can control playback.",
+          "Only the room host or a moderator can control playback.",
       };
     }
 
