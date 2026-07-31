@@ -45,6 +45,13 @@ export function createApp(): express.Express {
     });
   });
 
+  app.get("/version", (_request: Request, response: Response) => {
+    response.status(200).json({
+      version: "submission-polish",
+      deployedAt: new Date().toISOString(),
+    });
+  });
+
   app.use("/api/youtube", youtubeRouter);
 
   app.use((_request: Request, response: Response) => {
@@ -78,12 +85,6 @@ export function createApp(): express.Express {
           message: "An unexpected server error occurred.",
         },
       });
-      app.get("/version", (_request, response) => {
-  response.json({
-    version: "submission-polish",
-    deployedAt: new Date().toISOString(),
-  });
-});
     },
   );
 
