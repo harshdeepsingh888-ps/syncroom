@@ -321,7 +321,7 @@ The landing page introduces the platform, allows users to create or join a room 
 
 The room interface is the primary collaboration workspace where synchronized playback, participant management, and room controls are combined into a single experience.
 
-![Shared Watch Room](README-assets/syncroom-dashboard.png)
+![SyncRoom Dashboard](README-assets/syncroom-dashboard.png)
 
 ---
 
