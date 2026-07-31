@@ -18,6 +18,7 @@ export type PlaybackSnapshot = {
   status: PlaybackStatus;
   positionSeconds: number;
   playbackRate: number;
+  updatedAt: string;
 };
 
 export type ActiveRoom = {

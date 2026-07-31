@@ -18,7 +18,11 @@ export type YouTubePlayerHandle = {
   ) => void;
   getCurrentTime: () => number;
   getPlayerState: () => YT.PlayerState | null;
+
+  // NEW
+  getDuration: () => number;
 };
+
 
 type YouTubePlayerProps = {
   videoId: string;
@@ -139,6 +143,11 @@ export const YouTubePlayer = forwardRef<
           null
         );
       },
+      getDuration() {
+  return (
+    playerRef.current?.getDuration() ?? 0
+  );
+},
     }),
     [],
   );

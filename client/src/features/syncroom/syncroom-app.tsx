@@ -20,7 +20,6 @@ import {
 } from "../../lib/socket";
 
 import {
-  formatPlaybackTime,
   getInitials,
   shortenRoomId,
 } from "../../utils/room-formatters";
@@ -38,6 +37,7 @@ import type {
 } from "../../types/realtime";
 
 import { RoleBadge } from "../../components/common/role-badge";
+import { PlaybackControls } from "../../components/playback/playback-controls";
 
 type EntryMode = "create" | "join";
 
@@ -454,11 +454,12 @@ function App() {
           roomVersion:
             response.roomVersion,
           playback: {
-  videoId: null,
-  status: "paused",
-  positionSeconds: 0,
-  playbackRate: 1,
-},
+            videoId: null,
+            status: "paused",
+            positionSeconds: 0,
+            playbackRate: 1,
+            updatedAt: new Date().toISOString(),
+          },
           participants: [
             {
               id: response.participantId,
@@ -705,18 +706,16 @@ function App() {
           onChangeVideo={
             handleChangeVideo
           }
-          onPlay={() =>
+          onPlay={(positionSeconds) =>
             executePlaybackCommand(
               "room:play",
-              activeRoom.playback
-                .positionSeconds,
+              positionSeconds,
             )
           }
-          onPause={() =>
+          onPause={(positionSeconds) =>
             executePlaybackCommand(
               "room:pause",
-              activeRoom.playback
-                .positionSeconds,
+              positionSeconds,
             )
           }
           onSeek={(positionSeconds) =>
@@ -1078,8 +1077,12 @@ type RoomWorkspaceProps = {
   onChangeVideo: (
     videoId: string,
   ) => void;
-  onPlay: () => void;
-  onPause: () => void;
+  onPlay: (
+    positionSeconds: number,
+  ) => void;
+  onPause: (
+    positionSeconds: number,
+  ) => void;
   onSeek: (
     positionSeconds: number,
   ) => void;
@@ -1105,6 +1108,16 @@ function RoomWorkspace({
   const [isPlayerReady, setIsPlayerReady] =
     useState(false);
 
+  const [videoDuration, setVideoDuration] =
+    useState(0);
+
+  const [
+    displayedPositionSeconds,
+    setDisplayedPositionSeconds,
+  ] = useState(
+    room.playback.positionSeconds,
+  );
+
   const [videoInput, setVideoInput] =
     useState("");
 
@@ -1116,7 +1129,61 @@ function RoomWorkspace({
 
   useEffect(() => {
     setIsPlayerReady(false);
+    setVideoDuration(0);
+    setDisplayedPositionSeconds(
+      room.playback.positionSeconds,
+    );
   }, [activeVideoId]);
+
+  useEffect(() => {
+    if (
+      !isPlayerReady ||
+      !activeVideoId
+    ) {
+      return;
+    }
+
+    function updatePlayerProgress(): void {
+      const player = playerRef.current;
+
+      if (!player) {
+        return;
+      }
+
+      const currentTime =
+        player.getCurrentTime();
+
+      if (Number.isFinite(currentTime)) {
+        setDisplayedPositionSeconds(
+          Math.max(0, currentTime),
+        );
+      }
+
+      const duration =
+        player.getDuration();
+
+      if (
+        Number.isFinite(duration) &&
+        duration > 0
+      ) {
+        setVideoDuration(duration);
+      }
+    }
+
+    updatePlayerProgress();
+
+    const progressInterval =
+      window.setInterval(
+        updatePlayerProgress,
+        250,
+      );
+
+    return () => {
+      window.clearInterval(
+        progressInterval,
+      );
+    };
+  }, [activeVideoId, isPlayerReady]);
 
   useEffect(() => {
     if (
@@ -1132,8 +1199,36 @@ function RoomWorkspace({
       return;
     }
 
+    const storedPosition = Math.max(
+      0,
+      room.playback.positionSeconds,
+    );
+
+    const updatedAtMilliseconds =
+      Date.parse(room.playback.updatedAt);
+
+    const elapsedSeconds =
+      room.playback.status === "playing" &&
+      Number.isFinite(updatedAtMilliseconds)
+        ? Math.max(
+            0,
+            (Date.now() -
+              updatedAtMilliseconds) /
+              1_000,
+          )
+        : 0;
+
+    const playbackRate =
+      Number.isFinite(
+        room.playback.playbackRate,
+      ) &&
+      room.playback.playbackRate > 0
+        ? room.playback.playbackRate
+        : 1;
+
     const authoritativePosition =
-      room.playback.positionSeconds;
+      storedPosition +
+      elapsedSeconds * playbackRate;
 
     const currentPosition =
       player.getCurrentTime();
@@ -1147,6 +1242,10 @@ function RoomWorkspace({
       player.seekTo(
         authoritativePosition,
       );
+
+      setDisplayedPositionSeconds(
+        authoritativePosition,
+      );
     }
 
     if (
@@ -1157,11 +1256,17 @@ function RoomWorkspace({
     }
 
     player.pause();
+
+    setDisplayedPositionSeconds(
+      authoritativePosition,
+    );
   }, [
     activeVideoId,
     isPlayerReady,
     room.playback.positionSeconds,
     room.playback.status,
+    room.playback.playbackRate,
+    room.playback.updatedAt,
   ]);
 
   function handleVideoSubmit(
@@ -1315,50 +1420,178 @@ function RoomWorkspace({
           <div className="player-shell">
             {activeVideoId ? (
               <>
-                <div className="youtube-player-container">
-  <YouTubePlayer
-    ref={playerRef}
-    className="youtube-player"
-    videoId={activeVideoId}
-    startSeconds={
-      room.playback.positionSeconds
-    }
-    controls={false}
-    onReady={() => {
-      setIsPlayerReady(true);
+                <div
+                  className="youtube-player-container"
+                  style={{
+                    position: "relative",
+                  }}
+                >
+                  <YouTubePlayer
+                    key={activeVideoId}
+                    ref={playerRef}
+                    className="youtube-player"
+                    videoId={activeVideoId}
+                    startSeconds={
+                      room.playback
+                        .positionSeconds
+                    }
+                    controls={false}
+                    onReady={() => {
+                      setIsPlayerReady(true);
+
+                      const player =
+                        playerRef.current;
+
+                      if (!player) {
+                        return;
+                      }
+
+                      setDisplayedPositionSeconds(
+                        Math.max(
+                          0,
+                          player.getCurrentTime(),
+                        ),
+                      );
+
+                      setVideoDuration(
+                        Math.max(
+                          0,
+                          player.getDuration(),
+                        ),
+                      );
+                    }}
+                    onError={() => {
+                      setIsPlayerReady(false);
+                      setVideoDuration(0);
+                    }}
+                  />
+
+                  {room.playback.status === "paused" ? (
+  canControlPlayback ? (
+    <button
+      type="button"
+      aria-label="Play the synchronized video"
+      title="Play for everyone"
+      disabled={
+        !isPlayerReady ||
+        isPlaybackCommandPending
+      }
+      onClick={() => {
+        const currentTime =
+          playerRef.current?.getCurrentTime();
+
+        const positionSeconds =
+          typeof currentTime === "number" &&
+          Number.isFinite(currentTime)
+            ? Math.max(0, currentTime)
+            : displayedPositionSeconds;
+
+        onPlay(positionSeconds);
+      }}
+      style={{
+        position: "absolute",
+        inset: 0,
+        zIndex: 20,
+        display: "grid",
+        placeItems: "center",
+        width: "100%",
+        border: 0,
+        padding: 0,
+        cursor:
+          !isPlayerReady ||
+          isPlaybackCommandPending
+            ? "not-allowed"
+            : "pointer",
+        backgroundImage: `linear-gradient(
+          rgba(0, 0, 0, 0.2),
+          rgba(0, 0, 0, 0.45)
+        ), url("https://i.ytimg.com/vi/${activeVideoId}/hqdefault.jpg")`,
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
+        backgroundSize: "cover",
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          display: "grid",
+          placeItems: "center",
+          width: "72px",
+          height: "52px",
+          borderRadius: "14px",
+          background: "#16a34a",
+          color: "#ffffff",
+          fontSize: "26px",
+          lineHeight: 1,
+          boxShadow:
+            "0 12px 30px rgba(0, 0, 0, 0.35)",
+        }}
+      >
+        ▶
+      </span>
+    </button>
+  ) : (
+    <div
+  className="youtube-player-lock"
+  aria-label="Use the synchronized controls below the video"
+  title="Use the synchronized room controls below"
+  style={{
+    position: "absolute",
+    inset: 0,
+    zIndex: 20,
+    display: "grid",
+    placeItems: "center",
+    pointerEvents: "auto",
+    cursor: "default",
+    backgroundImage: `linear-gradient(
+      rgba(0, 0, 0, 0.18),
+      rgba(0, 0, 0, 0.38)
+    ), url("https://i.ytimg.com/vi/${activeVideoId}/hqdefault.jpg")`,
+    backgroundPosition: "center",
+    backgroundRepeat: "no-repeat",
+    backgroundSize: "cover",
+  }}
+>
+  <span
+    style={{
+      padding: "10px 16px",
+      borderRadius: "999px",
+      background: "rgba(0, 0, 0, 0.72)",
+      color: "#ffffff",
+      fontSize: "14px",
+      fontWeight: 700,
     }}
-    onError={() => {
-      setIsPlayerReady(false);
+  >
+    Use the controls below
+  </span>
+</div>
+  )
+) : (
+  <div
+    className="youtube-player-lock"
+    aria-label="Use the synchronized controls below the video"
+    title="Use the synchronized room controls below"
+    style={{
+      position: "absolute",
+      inset: 0,
+      zIndex: 10,
+      pointerEvents: "auto",
+      cursor: "default",
+      background: "transparent",
     }}
   />
-
-  {!canControlPlayback ? (
-    <div
-      className="youtube-player-lock"
-      aria-label="Playback is controlled by the room host"
-    >
-      <span>
-        Playback controlled by the host
-      </span>
-    </div>
-  ) : null}
-</div>
-                  onReady={() => {
-                    setIsPlayerReady(true);
-                  }}
-                  onError={() => {
-                    setIsPlayerReady(false);
-                  }}
-                /
+)}
+                </div>
 
                 <PlaybackControls
-                  key={`${room.roomVersion}:${room.playback.positionSeconds}`}
                   playbackStatus={
                     room.playback.status
                   }
                   positionSeconds={
-                    room.playback
-                      .positionSeconds
+                    displayedPositionSeconds
+                  }
+                  durationSeconds={
+                    videoDuration
                   }
                   canControl={
                     canControlPlayback
@@ -1366,9 +1599,45 @@ function RoomWorkspace({
                   isPending={
                     isPlaybackCommandPending
                   }
-                  onPlay={onPlay}
-                  onPause={onPause}
-                  onSeek={onSeek}
+                  onPlay={() => {
+                    const currentTime =
+                      playerRef.current?.getCurrentTime();
+
+                    onPlay(
+                      currentTime !== undefined &&
+                      Number.isFinite(currentTime)
+                        ? Math.max(
+                            0,
+                            currentTime,
+                          )
+                        : displayedPositionSeconds,
+                    );
+                  }}
+                  onPause={() => {
+                    const currentTime =
+                      playerRef.current?.getCurrentTime();
+
+                    onPause(
+                      currentTime !== undefined &&
+                      Number.isFinite(currentTime)
+                        ? Math.max(
+                            0,
+                            currentTime,
+                          )
+                        : displayedPositionSeconds,
+                    );
+                  }}
+                  onSeek={(positionSeconds) => {
+                    playerRef.current?.seekTo(
+                      positionSeconds,
+                    );
+
+                    setDisplayedPositionSeconds(
+                      positionSeconds,
+                    );
+
+                    onSeek(positionSeconds);
+                  }}
                 />
               </>
             ) : (
@@ -1404,7 +1673,7 @@ function RoomWorkspace({
 
               <p>
                 {canControlPlayback
-                  ? "Your commands are validated by the server before becoming room state."
+                  ? "Use the synchronized controls below the video. Direct YouTube controls are intentionally disabled."
                   : "Playback changes arrive automatically from the authoritative server."}
               </p>
             </div>
@@ -1492,117 +1761,6 @@ function extractYouTubeVideoId(
   return null;
 }
 
-type PlaybackControlsProps = {
-  playbackStatus:
-    | "playing"
-    | "paused";
-  positionSeconds: number;
-  canControl: boolean;
-  isPending: boolean;
-  onPlay: () => void;
-  onPause: () => void;
-  onSeek: (
-    positionSeconds: number,
-  ) => void;
-};
-
-function PlaybackControls({
-  playbackStatus,
-  positionSeconds,
-  canControl,
-  isPending,
-  onPlay,
-  onPause,
-  onSeek,
-}: PlaybackControlsProps) {
-  const [seekValue, setSeekValue] =
-    useState(positionSeconds);
-
-  return (
-    <div className="playback-controls">
-      <div className="playback-actions">
-        <button
-          type="button"
-          className="control-button"
-          disabled={
-            !canControl || isPending
-          }
-          onClick={
-            playbackStatus === "playing"
-              ? onPause
-              : onPlay
-          }
-        >
-          <span className="control-icon">
-            {playbackStatus === "playing"
-              ? "Ⅱ"
-              : "▶"}
-          </span>
-
-          {playbackStatus === "playing"
-            ? "Pause"
-            : "Play"}
-        </button>
-
-        <div className="timeline-status">
-          <span>
-            Authoritative position
-          </span>
-
-          <strong>
-            {formatPlaybackTime(
-              positionSeconds,
-            )}
-          </strong>
-        </div>
-      </div>
-
-      <label className="seek-control">
-        <span className="seek-label-row">
-          <span>Seek position</span>
-
-          <strong>
-            {formatPlaybackTime(seekValue)}
-          </strong>
-        </span>
-
-        <input
-          type="range"
-          min="0"
-          max="7200"
-          step="1"
-          value={seekValue}
-          disabled={
-            !canControl || isPending
-          }
-          onChange={(event) =>
-            setSeekValue(
-              Number(event.target.value),
-            )
-          }
-          onPointerUp={() =>
-            onSeek(seekValue)
-          }
-          onKeyUp={(event) => {
-            if (
-              event.key === "Enter" ||
-              event.key === " "
-            ) {
-              onSeek(seekValue);
-            }
-          }}
-        />
-      </label>
-
-      {!canControl ? (
-        <p className="control-note">
-          Playback controls are available to
-          hosts and moderators.
-        </p>
-      ) : null}
-    </div>
-  );
-}
 
 type ParticipantsPanelProps = {
   room: ActiveRoom;
