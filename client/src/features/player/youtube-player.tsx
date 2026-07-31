@@ -185,9 +185,12 @@ export const YouTubePlayer = forwardRef<
 
               playerVars: {
                 autoplay: 0,
+                cc_load_policy: 0,
+                cc_lang_pref: "en",
                 controls: controls ? 1 : 0,
                 disablekb: controls ? 0 : 1,
                 enablejsapi: 1,
+                hl: "en",
                 playsinline: 1,
                 rel: 0,
                 start: Math.floor(

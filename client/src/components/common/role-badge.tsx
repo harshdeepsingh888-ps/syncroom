@@ -11,6 +11,7 @@ export function RoleBadge({
     <span
       className={`role-badge role-badge--${role}`}
     >
+      <span className="role-dot" aria-hidden="true" />
       {role}
     </span>
   );

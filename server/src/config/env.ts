@@ -15,6 +15,11 @@ const environmentSchema = z.object({
   CLIENT_ORIGIN: z
     .url()
     .default("http://localhost:5173"),
+
+  YOUTUBE_DATA_API_KEY: z
+    .string()
+    .trim()
+    .optional(),
 });
 
 const parsedEnvironment = environmentSchema.safeParse(process.env);

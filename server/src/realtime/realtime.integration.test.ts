@@ -118,6 +118,33 @@ type ParticipantRoleUpdatedEvent = {
   };
 };
 
+type RemoveParticipantSuccess = {
+  success: true;
+  roomId: string;
+  roomVersion: number;
+  removedParticipantId: string;
+};
+
+type RemoveParticipantFailure = {
+  success: false;
+  code: string;
+  message: string;
+};
+
+type RemoveParticipantResponse =
+  | RemoveParticipantSuccess
+  | RemoveParticipantFailure;
+
+type ParticipantRemovedEvent = {
+  roomId: string;
+  roomVersion: number;
+  participant: {
+    id: string;
+    displayName: string;
+    role: ParticipantRole;
+  };
+};
+
 type ParticipantLeftEvent = {
   roomId: string;
   roomVersion: number;
@@ -232,9 +259,11 @@ test(
           createRoomVersion,
       );
 
+      // 1. Host promotes Participant to Moderator
+      // 2. All connected clients receive participant:role-updated
       const roleUpdatedEventPromise =
         waitForEvent<ParticipantRoleUpdatedEvent>(
-          moderatorSocket,
+          participantSocket,
           "participant:role-updated",
         );
 
@@ -274,45 +303,8 @@ test(
         roleUpdatedEvent.participant.role,
         "moderator",
       );
-      assert.equal(
-        roomRepository
-          .findById(roomId)
-          ?.participants.get(
-            moderatorParticipantId,
-          )?.role,
-        "moderator",
-      );
 
-      const forbiddenRoleResponse =
-        await emitWithAcknowledgement<AssignRoleResponse>(
-          participantSocket,
-          "room:assign-role",
-          {
-            roomId,
-            actorParticipantId:
-              participantId,
-            targetParticipantId:
-              moderatorParticipantId,
-            role: "participant",
-          },
-        );
-
-      assert.equal(
-        forbiddenRoleResponse.success,
-        false,
-      );
-
-      if (forbiddenRoleResponse.success) {
-        assert.fail(
-          "A regular participant incorrectly assigned a role.",
-        );
-      }
-
-      assert.equal(
-        forbiddenRoleResponse.code,
-        "ROLE_FORBIDDEN",
-      );
-
+      // 3. Promoted Moderator can control playback
       const moderatorPlayResponse =
         await emitWithAcknowledgement<PlaybackCommandResponse>(
           moderatorSocket,
@@ -336,31 +328,160 @@ test(
         "playing",
       );
 
-      const forbiddenPlaybackResponse =
-        await emitWithAcknowledgement<PlaybackCommandResponse>(
+      // 4. Moderator cannot assign roles
+      const moderatorAssignRoleResponse =
+        await emitWithAcknowledgement<AssignRoleResponse>(
+          moderatorSocket,
+          "room:assign-role",
+          {
+            roomId,
+            actorParticipantId:
+              moderatorParticipantId,
+            targetParticipantId:
+              participantId,
+            role: "moderator",
+          },
+        );
+
+      assert.equal(
+        moderatorAssignRoleResponse.success,
+        false,
+      );
+      assert.equal(
+        moderatorAssignRoleResponse.code,
+        "ROLE_FORBIDDEN",
+      );
+
+      // 5. Regular Participant cannot assign roles
+      const forbiddenRoleResponse =
+        await emitWithAcknowledgement<AssignRoleResponse>(
           participantSocket,
+          "room:assign-role",
+          {
+            roomId,
+            actorParticipantId:
+              participantId,
+            targetParticipantId:
+              moderatorParticipantId,
+            role: "participant",
+          },
+        );
+
+      assert.equal(
+        forbiddenRoleResponse.success,
+        false,
+      );
+      assert.equal(
+        forbiddenRoleResponse.code,
+        "ROLE_FORBIDDEN",
+      );
+
+      // 6. Host demotes Moderator to Participant
+      const demoteEventPromise =
+        waitForEvent<ParticipantRoleUpdatedEvent>(
+          moderatorSocket,
+          "participant:role-updated",
+        );
+
+      const demoteRoleResponse =
+        await emitWithAcknowledgement<AssignRoleResponse>(
+          hostSocket,
+          "room:assign-role",
+          {
+            roomId,
+            actorParticipantId:
+              hostParticipantId,
+            targetParticipantId:
+              moderatorParticipantId,
+            role: "participant",
+          },
+        );
+
+      if (!demoteRoleResponse.success) {
+        assert.fail(
+          `Demotion failed: ${demoteRoleResponse.message}`,
+        );
+      }
+
+      assert.equal(
+        demoteRoleResponse.participant.role,
+        "participant",
+      );
+
+      const demotedEvent = await demoteEventPromise;
+      assert.equal(
+        demotedEvent.participant.role,
+        "participant",
+      );
+
+      // 7. Demoted participant can no longer control playback
+      const demotedPlayResponse =
+        await emitWithAcknowledgement<PlaybackCommandResponse>(
+          moderatorSocket,
           "room:play",
           {
             roomId,
-            participantId,
+            participantId:
+              moderatorParticipantId,
             positionSeconds: 20,
           },
         );
 
       assert.equal(
-        forbiddenPlaybackResponse.success,
+        demotedPlayResponse.success,
         false,
       );
+      assert.equal(
+        demotedPlayResponse.code,
+        "PLAYBACK_FORBIDDEN",
+      );
 
-      if (forbiddenPlaybackResponse.success) {
-        assert.fail(
-          "A regular participant incorrectly controlled playback.",
+      // 8. Host cannot assign their own role
+      const selfRoleResponse =
+        await emitWithAcknowledgement<AssignRoleResponse>(
+          hostSocket,
+          "room:assign-role",
+          {
+            roomId,
+            actorParticipantId:
+              hostParticipantId,
+            targetParticipantId:
+              hostParticipantId,
+            role: "participant",
+          },
         );
-      }
 
       assert.equal(
-        forbiddenPlaybackResponse.code,
-        "PLAYBACK_FORBIDDEN",
+        selfRoleResponse.success,
+        false,
+      );
+      assert.equal(
+        selfRoleResponse.code,
+        "INVALID_ROLE_TARGET",
+      );
+
+      // 9. Unknown target participant is rejected
+      const unknownTargetResponse =
+        await emitWithAcknowledgement<AssignRoleResponse>(
+          hostSocket,
+          "room:assign-role",
+          {
+            roomId,
+            actorParticipantId:
+              hostParticipantId,
+            targetParticipantId:
+              "non-existent-participant-id",
+            role: "moderator",
+          },
+        );
+
+      assert.equal(
+        unknownTargetResponse.success,
+        false,
+      );
+      assert.equal(
+        unknownTargetResponse.code,
+        "PARTICIPANT_NOT_FOUND",
       );
 
       const hostPauseResponse =
@@ -472,6 +593,243 @@ test(
 
       await stopTestServer(harness);
 
+      clearRoomRepository();
+    }
+  },
+);
+
+test(
+  "realtime room participant removal enforces host authorization, client eviction, and room isolation",
+  async () => {
+    clearRoomRepository();
+
+    const harness = await startTestServer();
+
+    const hostSocket = await connectClient(harness.serverUrl);
+    const moderatorSocket = await connectClient(harness.serverUrl);
+    const participantSocket = await connectClient(harness.serverUrl);
+
+    try {
+      const createResponse =
+        await emitWithAcknowledgement<CreateRoomResponse>(
+          hostSocket,
+          "room:create",
+          { displayName: "Host User" },
+        );
+
+      if (!createResponse.success) {
+        assert.fail(`Room creation failed: ${createResponse.message}`);
+      }
+
+      const { roomId, participantId: hostParticipantId } = createResponse;
+
+      const moderatorJoinResponse =
+        await emitWithAcknowledgement<JoinRoomResponse>(
+          moderatorSocket,
+          "room:join",
+          { roomId, displayName: "Moderator User" },
+        );
+
+      if (!moderatorJoinResponse.success) {
+        assert.fail(`Moderator join failed: ${moderatorJoinResponse.message}`);
+      }
+
+      const moderatorParticipantId = moderatorJoinResponse.participantId;
+
+      await emitWithAcknowledgement<AssignRoleResponse>(
+        hostSocket,
+        "room:assign-role",
+        {
+          roomId,
+          actorParticipantId: hostParticipantId,
+          targetParticipantId: moderatorParticipantId,
+          role: "moderator",
+        },
+      );
+
+      const participantJoinResponse =
+        await emitWithAcknowledgement<JoinRoomResponse>(
+          participantSocket,
+          "room:join",
+          { roomId, displayName: "Regular Participant" },
+        );
+
+      if (!participantJoinResponse.success) {
+        assert.fail(`Participant join failed: ${participantJoinResponse.message}`);
+      }
+
+      const participantId = participantJoinResponse.participantId;
+
+      // 3. Participant cannot remove anyone
+      const participantRemoveResponse =
+        await emitWithAcknowledgement<RemoveParticipantResponse>(
+          participantSocket,
+          "room:remove-participant",
+          {
+            roomId,
+            actorParticipantId: participantId,
+            targetParticipantId: moderatorParticipantId,
+          },
+        );
+
+      assert.equal(participantRemoveResponse.success, false);
+      assert.equal(participantRemoveResponse.code, "REMOVE_FORBIDDEN");
+
+      // 4. Moderator cannot remove anyone
+      const moderatorRemoveResponse =
+        await emitWithAcknowledgement<RemoveParticipantResponse>(
+          moderatorSocket,
+          "room:remove-participant",
+          {
+            roomId,
+            actorParticipantId: moderatorParticipantId,
+            targetParticipantId: participantId,
+          },
+        );
+
+      assert.equal(moderatorRemoveResponse.success, false);
+      assert.equal(moderatorRemoveResponse.code, "REMOVE_FORBIDDEN");
+
+      // 5. Host cannot remove themselves
+      const hostSelfRemoveResponse =
+        await emitWithAcknowledgement<RemoveParticipantResponse>(
+          hostSocket,
+          "room:remove-participant",
+          {
+            roomId,
+            actorParticipantId: hostParticipantId,
+            targetParticipantId: hostParticipantId,
+          },
+        );
+
+      assert.equal(hostSelfRemoveResponse.success, false);
+      assert.equal(
+        hostSelfRemoveResponse.code,
+        "HOST_SELF_REMOVAL_FORBIDDEN",
+      );
+
+      // 6. Unknown participant is rejected
+      const unknownRemoveResponse =
+        await emitWithAcknowledgement<RemoveParticipantResponse>(
+          hostSocket,
+          "room:remove-participant",
+          {
+            roomId,
+            actorParticipantId: hostParticipantId,
+            targetParticipantId: "non-existent-participant-id",
+          },
+        );
+
+      assert.equal(unknownRemoveResponse.success, false);
+      assert.equal(
+        unknownRemoveResponse.code,
+        "PARTICIPANT_NOT_FOUND",
+      );
+
+      // 1. Host removes Participant successfully
+      // 7. Removed client receives participant:removed
+      // 8. Remaining clients receive updated participant list
+      // 9. Removed socket leaves the Socket.IO room
+      const targetRemovedEventPromise =
+        waitForEvent<ParticipantRemovedEvent>(
+          participantSocket,
+          "participant:removed",
+        );
+
+      const roomRemovedEventPromise =
+        waitForEvent<ParticipantRemovedEvent>(
+          moderatorSocket,
+          "participant:removed",
+        );
+
+      const hostRemoveParticipantResponse =
+        await emitWithAcknowledgement<RemoveParticipantResponse>(
+          hostSocket,
+          "room:remove-participant",
+          {
+            roomId,
+            actorParticipantId: hostParticipantId,
+            targetParticipantId: participantId,
+          },
+        );
+
+      if (!hostRemoveParticipantResponse.success) {
+        assert.fail(
+          `Host failed to remove participant: ${hostRemoveParticipantResponse.message}`,
+        );
+      }
+
+      const targetRemovedEvent = await targetRemovedEventPromise;
+      const roomRemovedEvent = await roomRemovedEventPromise;
+
+      assert.equal(targetRemovedEvent.participant.id, participantId);
+      assert.equal(roomRemovedEvent.participant.id, participantId);
+
+      // 10. Removed participant cannot control playback afterward
+      const removedUserPlayResponse =
+        await emitWithAcknowledgement<PlaybackCommandResponse>(
+          participantSocket,
+          "room:play",
+          {
+            roomId,
+            participantId,
+            positionSeconds: 50,
+          },
+        );
+
+      assert.equal(removedUserPlayResponse.success, false);
+      assert.equal(removedUserPlayResponse.code, "PARTICIPANT_NOT_FOUND");
+
+      // 11. Removed participant does not receive later playback broadcasts
+      let removedUserReceivedBroadcast = false;
+      participantSocket.on("playback:updated", () => {
+        removedUserReceivedBroadcast = true;
+      });
+
+      const hostPlayAfterRemoval =
+        await emitWithAcknowledgement<PlaybackCommandResponse>(
+          hostSocket,
+          "room:play",
+          {
+            roomId,
+            participantId: hostParticipantId,
+            positionSeconds: 100,
+          },
+        );
+
+      assert.equal(hostPlayAfterRemoval.success, true);
+      await delay(100);
+      assert.equal(removedUserReceivedBroadcast, false);
+
+      // 2. Host removes Moderator successfully
+      const hostRemoveModeratorResponse =
+        await emitWithAcknowledgement<RemoveParticipantResponse>(
+          hostSocket,
+          "room:remove-participant",
+          {
+            roomId,
+            actorParticipantId: hostParticipantId,
+            targetParticipantId: moderatorParticipantId,
+          },
+        );
+
+      if (!hostRemoveModeratorResponse.success) {
+        assert.fail(
+          `Host failed to remove moderator: ${hostRemoveModeratorResponse.message}`,
+        );
+      }
+    } finally {
+      if (hostSocket.connected) {
+        hostSocket.disconnect();
+      }
+      if (moderatorSocket.connected) {
+        moderatorSocket.disconnect();
+      }
+      if (participantSocket.connected) {
+        participantSocket.disconnect();
+      }
+
+      await stopTestServer(harness);
       clearRoomRepository();
     }
   },

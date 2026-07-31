@@ -140,7 +140,8 @@ export type RemoveParticipantResponse =
       success: true;
       roomId: string;
       roomVersion: number;
-      removedParticipant: Participant;
+      removedParticipantId?: string;
+      removedParticipant?: Participant;
     }
   | {
       success: false;
