@@ -2,7 +2,10 @@ import type { Logger } from "pino";
 import type { Socket } from "socket.io";
 import { z } from "zod";
 
-import { PARTICIPANT_ROLES } from "../../modules/rooms/domain/index.js";
+import {
+  PARTICIPANT_ROLES,
+  type ParticipantRole,
+} from "../../modules/rooms/domain/index.js";
 import { roomService } from "../../modules/rooms/room-container.js";
 
 const assignRolePayloadSchema = z.object({
@@ -43,6 +46,42 @@ type AssignRoleResponse =
 
 type AssignRoleAck = (
   response: AssignRoleResponse,
+) => void;
+
+const transferHostPayloadSchema = z.object({
+  roomId: z.string().trim().min(1),
+  actorParticipantId: z.string().trim().min(1),
+  targetParticipantId: z.string().trim().min(1),
+});
+
+type TransferHostSuccessResponse = {
+  success: true;
+  roomId: string;
+  roomVersion: number;
+  newHost: {
+    id: string;
+    displayName: string;
+    role: ParticipantRole;
+  };
+};
+
+type TransferHostFailureResponse = {
+  success: false;
+  code:
+    | "INVALID_PAYLOAD"
+    | "ROOM_NOT_FOUND"
+    | "PARTICIPANT_NOT_FOUND"
+    | "TRANSFER_FORBIDDEN"
+    | "INVALID_TRANSFER_TARGET";
+  message: string;
+};
+
+type TransferHostResponse =
+  | TransferHostSuccessResponse
+  | TransferHostFailureResponse;
+
+type TransferHostAck = (
+  response: TransferHostResponse,
 ) => void;
 
 export function registerParticipantHandlers(
@@ -138,6 +177,112 @@ export function registerParticipantHandlers(
             result.room.roomVersion,
         },
         "Participant role updated.",
+      );
+    },
+  );
+
+  socket.on(
+    "room:transfer-host",
+    (payload: unknown, ack: unknown): void => {
+      const acknowledge =
+        getTransferHostAck(ack);
+
+      if (acknowledge === null) {
+        socket.emit("realtime:error", {
+          code: "ACK_REQUIRED",
+          message:
+            "Host transfer requires an acknowledgement callback.",
+        });
+
+        return;
+      }
+
+      const parsedPayload =
+        transferHostPayloadSchema.safeParse(
+          payload,
+        );
+
+      if (!parsedPayload.success) {
+        acknowledge({
+          success: false,
+          code: "INVALID_PAYLOAD",
+          message:
+            "Room ID, acting participant ID, and target participant ID are required.",
+        });
+
+        return;
+      }
+
+      const result =
+        roomService.transferHost({
+          ...parsedPayload.data,
+          actorSocketId: socket.id,
+        });
+
+      if (!result.success) {
+        acknowledge({
+          success: false,
+          code: result.code,
+          message: result.message,
+        });
+
+        return;
+      }
+
+      acknowledge({
+        success: true,
+        roomId: result.room.id,
+        roomVersion: result.room.roomVersion,
+        newHost: {
+          id: result.newHost.id,
+          displayName: result.newHost.displayName,
+          role: result.newHost.role,
+        },
+      });
+
+      const hostTransferredEvent = {
+        roomId: result.room.id,
+        roomVersion: result.room.roomVersion,
+        previousHostParticipantId:
+          result.previousHost.id,
+        newHost: {
+          id: result.newHost.id,
+          displayName: result.newHost.displayName,
+          role: result.newHost.role,
+        },
+      };
+
+      socket.nsp
+        .to(result.room.id)
+        .emit(
+          "host:transferred",
+          hostTransferredEvent,
+        );
+
+      socket.nsp
+        .to(result.room.id)
+        .emit(
+          "participant:list-updated",
+          {
+            roomId: result.room.id,
+            roomVersion: result.room.roomVersion,
+            participants: Array.from(
+              result.room.participants.values(),
+            ),
+          },
+        );
+
+      logger.info(
+        {
+          event: "host_transferred_manually",
+          roomId: result.room.id,
+          previousHostParticipantId:
+            result.previousHost.id,
+          newHostParticipantId:
+            result.newHost.id,
+          roomVersion: result.room.roomVersion,
+        },
+        "Room host transferred manually.",
       );
     },
   );
@@ -244,4 +389,14 @@ function getAssignRoleAck(
   }
 
   return value as AssignRoleAck;
+}
+
+function getTransferHostAck(
+  value: unknown,
+): TransferHostAck | null {
+  if (typeof value !== "function") {
+    return null;
+  }
+
+  return value as TransferHostAck;
 }

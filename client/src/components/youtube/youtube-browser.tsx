@@ -29,12 +29,19 @@ export type CategoryOption = {
 
 export const CATEGORIES: CategoryOption[] = [
   { label: "All", query: "popular videos" },
-  { label: "Trending", query: "trending" },
-  { label: "Music", query: "trending music" },
-  { label: "Gaming", query: "trending gaming" },
+  { label: "Trending", query: "trending videos" },
+  { label: "Music", query: "official music videos" },
+  { label: "Comedy", query: "stand up comedy" },
+  { label: "Gaming", query: "gaming highlights" },
   { label: "Movies", query: "movie trailers" },
-  { label: "Education", query: "educational videos" },
   { label: "Sports", query: "sports highlights" },
+  { label: "Technology", query: "technology reviews" },
+  { label: "Learning", query: "educational videos" },
+  { label: "Podcasts", query: "popular podcasts" },
+  { label: "Travel", query: "travel documentaries" },
+  { label: "Food", query: "food and cooking videos" },
+  { label: "Animation", query: "animation videos" },
+  { label: "Live", query: "live streams" },
 ];
 
 function formatPublishDate(publishedAt: string): string {
@@ -75,6 +82,7 @@ export function YouTubeBrowser({
   const [error, setError] = useState<string | null>(null);
   const [hasSearched, setHasSearched] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const [participantNotice, setParticipantNotice] = useState<string | null>(null);
 
   async function executeSearch(searchText: string, token?: string): Promise<void> {
     const trimmed = searchText.trim();
@@ -168,6 +176,13 @@ export function YouTubeBrowser({
       "popular videos";
 
     executeSearch(currentSearchTerm, nextPageToken);
+  }
+
+  function triggerParticipantNotice(): void {
+    setParticipantNotice("Shared playback is controlled by the Host or a Moderator.");
+    window.setTimeout(() => {
+      setParticipantNotice(null);
+    }, 3200);
   }
 
   return (
@@ -275,10 +290,24 @@ export function YouTubeBrowser({
         })}
       </div>
 
-      {!canControlPlayback ? (
-        <p className="browser-authority-note">
-          Only room Hosts and Moderators can select a video for everyone.
-        </p>
+      <div className="browser-authority-banner" role="status" aria-live="polite">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" aria-hidden="true">
+          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
+        </svg>
+        <span>
+          {canControlPlayback
+            ? "Choose a video to play it for everyone in the room."
+            : "Browse freely. The Host or a Moderator chooses what plays for everyone."}
+        </span>
+      </div>
+
+      {participantNotice ? (
+        <div className="participant-toast" role="status" aria-live="polite">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
+          </svg>
+          <span>{participantNotice}</span>
+        </div>
       ) : null}
 
       {error ? <div className="browser-error-message">{error}</div> : null}
@@ -316,41 +345,42 @@ export function YouTubeBrowser({
               const isSelected = item.videoId === activeVideoId;
               const formattedDate = formatPublishDate(item.publishedAt);
 
+              const isHostOrMod = canControlPlayback;
+              const isInteractive = isHostOrMod && !isSelected && !isVideoCommandPending;
+
               return (
                 <article
-                  className={`youtube-result-card ${isSelected ? "selected" : ""}`}
+                  className={`youtube-result-card ${isSelected ? "selected" : ""} ${
+                    isInteractive ? "interactive" : ""
+                  } ${!isHostOrMod ? "participant-browsable" : ""}`}
                   key={item.videoId}
+                  tabIndex={isInteractive ? 0 : undefined}
+                  role={isInteractive ? "button" : undefined}
+                  aria-label={
+                    isSelected
+                      ? `${item.title} is currently playing`
+                      : isInteractive
+                        ? `Play ${item.title} for the room`
+                        : item.title
+                  }
+                  onClick={() => {
+                    if (isInteractive) {
+                      onSelectVideo(item.videoId);
+                    } else if (!isHostOrMod && !isSelected) {
+                      triggerParticipantNotice();
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (
+                      isInteractive &&
+                      (event.key === "Enter" || event.key === " ")
+                    ) {
+                      event.preventDefault();
+                      onSelectVideo(item.videoId);
+                    }
+                  }}
                 >
-                  <div
-                    className={`result-thumbnail-shell ${
-                      canControlPlayback && !isSelected && !isVideoCommandPending
-                        ? "interactive"
-                        : ""
-                    }`}
-                    tabIndex={canControlPlayback && !isSelected ? 0 : undefined}
-                    role={canControlPlayback && !isSelected ? "button" : undefined}
-                    aria-label={`Select ${item.title}`}
-                    onClick={() => {
-                      if (
-                        canControlPlayback &&
-                        !isSelected &&
-                        !isVideoCommandPending
-                      ) {
-                        onSelectVideo(item.videoId);
-                      }
-                    }}
-                    onKeyDown={(event) => {
-                      if (
-                        (event.key === "Enter" || event.key === " ") &&
-                        canControlPlayback &&
-                        !isSelected &&
-                        !isVideoCommandPending
-                      ) {
-                        event.preventDefault();
-                        onSelectVideo(item.videoId);
-                      }
-                    }}
-                  >
+                  <div className="result-thumbnail-shell">
                     <img
                       src={item.thumbnailUrl}
                       alt={item.title}
@@ -359,14 +389,24 @@ export function YouTubeBrowser({
 
                     {isSelected ? (
                       <span className="now-playing-chip">Now Playing</span>
-                    ) : canControlPlayback ? (
+                    ) : isHostOrMod ? (
                       <div className="thumbnail-hover-overlay">
-                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
                           <path d="M8 5v14l11-7z" />
                         </svg>
-                        <span>Watch Together</span>
+                        <span>Play for Room</span>
                       </div>
-                    ) : null}
+                    ) : (
+                      <span
+                        className="thumbnail-host-only-badge"
+                        title="Shared playback is controlled by Host or Moderator"
+                      >
+                        <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor" aria-hidden="true">
+                          <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z" />
+                        </svg>
+                        <span>Host / Mod</span>
+                      </span>
+                    )}
                   </div>
 
                   <div className="result-details">
@@ -383,24 +423,11 @@ export function YouTubeBrowser({
                       ) : null}
                     </div>
 
-                    <button
-                      type="button"
-                      className={`select-video-button ${isSelected ? "active" : ""}`}
-                      disabled={
-                        !canControlPlayback ||
-                        isVideoCommandPending ||
-                        isSelected
-                      }
-                      onClick={() => onSelectVideo(item.videoId)}
-                    >
-                      {isSelected
-                        ? "Currently Playing"
-                        : isVideoCommandPending
-                          ? "Loading…"
-                          : canControlPlayback
-                            ? "Select Video"
-                            : "Host Controlled"}
-                    </button>
+                    {isSelected ? (
+                      <span className="select-video-badge active">
+                        Currently Playing
+                      </span>
+                    ) : null}
                   </div>
                 </article>
               );

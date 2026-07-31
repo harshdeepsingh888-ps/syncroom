@@ -149,6 +149,25 @@ export type RemoveParticipantResponse =
       message: string;
     };
 
+export type TransferHostPayload = {
+  roomId: string;
+  actorParticipantId: string;
+  targetParticipantId: string;
+};
+
+export type TransferHostResponse =
+  | {
+      success: true;
+      roomId: string;
+      roomVersion: number;
+      newHost: Participant;
+    }
+  | {
+      success: false;
+      code: string;
+      message: string;
+    };
+
 export type PlaybackUpdatedEvent = {
   roomId: string;
   roomVersion: number;

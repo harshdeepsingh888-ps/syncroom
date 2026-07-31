@@ -23,6 +23,8 @@ import type {
   RealtimeErrorEvent,
   RemoveParticipantPayload,
   RemoveParticipantResponse,
+  TransferHostPayload,
+  TransferHostResponse,
   VideoChangedEvent,
 } from "../types/realtime";
 
@@ -80,6 +82,13 @@ type ClientToServerEvents = {
     payload: RemoveParticipantPayload,
     acknowledge: (
       response: RemoveParticipantResponse,
+    ) => void,
+  ) => void;
+
+  "room:transfer-host": (
+    payload: TransferHostPayload,
+    acknowledge: (
+      response: TransferHostResponse,
     ) => void,
   ) => void;
 };

@@ -135,6 +135,27 @@ type RemoveParticipantResponse =
   | RemoveParticipantSuccess
   | RemoveParticipantFailure;
 
+type TransferHostSuccess = {
+  success: true;
+  roomId: string;
+  roomVersion: number;
+  newHost: {
+    id: string;
+    displayName: string;
+    role: ParticipantRole;
+  };
+};
+
+type TransferHostFailure = {
+  success: false;
+  code: string;
+  message: string;
+};
+
+type TransferHostResponse =
+  | TransferHostSuccess
+  | TransferHostFailure;
+
 type ParticipantRemovedEvent = {
   roomId: string;
   roomVersion: number;
@@ -828,6 +849,99 @@ test(
       if (participantSocket.connected) {
         participantSocket.disconnect();
       }
+
+      await stopTestServer(harness);
+      clearRoomRepository();
+    }
+  },
+);
+
+test(
+  "realtime room manual host transfer updates roles, broadcasts events, and rejects unauthorized requests",
+  async () => {
+    clearRoomRepository();
+
+    const harness = await startTestServer();
+    const hostSocket = await connectClient(harness.serverUrl);
+    const targetSocket = await connectClient(harness.serverUrl);
+
+    try {
+      const createRoomResponse =
+        await emitWithAcknowledgement<CreateRoomResponse>(
+          hostSocket,
+          "room:create",
+          { displayName: "HostUser" },
+        );
+
+      assert.equal(createRoomResponse.success, true);
+      if (!createRoomResponse.success) return;
+
+      const roomId = createRoomResponse.roomId;
+      const hostId = createRoomResponse.participantId;
+
+      const joinRoomResponse =
+        await emitWithAcknowledgement<JoinRoomSuccess>(
+          targetSocket,
+          "room:join",
+          { roomId, displayName: "TargetUser" },
+        );
+
+      assert.equal(joinRoomResponse.success, true);
+      if (!joinRoomResponse.success) return;
+
+      const targetId = joinRoomResponse.participantId;
+
+      // 1. Participant attempting transfer should be rejected
+      const unauthorizedResponse =
+        await emitWithAcknowledgement<TransferHostResponse>(
+          targetSocket,
+          "room:transfer-host",
+          {
+            roomId,
+            actorParticipantId: targetId,
+            targetParticipantId: hostId,
+          },
+        );
+
+      assert.equal(unauthorizedResponse.success, false);
+      if (unauthorizedResponse.success === false) {
+        assert.equal(unauthorizedResponse.code, "TRANSFER_FORBIDDEN");
+      }
+
+      // 2. Valid Host transfers ownership to Target User
+      const hostTransferredPromise =
+        waitForEvent<HostTransferredEvent>(
+          targetSocket,
+          "host:transferred",
+        );
+
+      const transferResponse =
+        await emitWithAcknowledgement<TransferHostResponse>(
+          hostSocket,
+          "room:transfer-host",
+          {
+            roomId,
+            actorParticipantId: hostId,
+            targetParticipantId: targetId,
+          },
+        );
+
+      assert.equal(transferResponse.success, true);
+      if (!transferResponse.success) return;
+
+      const hostTransferredEvent = await hostTransferredPromise;
+      assert.equal(hostTransferredEvent.newHost.id, targetId);
+      assert.equal(hostTransferredEvent.newHost.role, "host");
+      assert.equal(hostTransferredEvent.previousHostParticipantId, hostId);
+
+      // Verify room state in repository
+      const updatedRoom = roomRepository.findById(roomId);
+      assert.equal(updatedRoom?.hostParticipantId, targetId);
+      assert.equal(updatedRoom?.participants.get(targetId)?.role, "host");
+      assert.equal(updatedRoom?.participants.get(hostId)?.role, "moderator");
+    } finally {
+      if (hostSocket.connected) hostSocket.disconnect();
+      if (targetSocket.connected) targetSocket.disconnect();
 
       await stopTestServer(harness);
       clearRoomRepository();

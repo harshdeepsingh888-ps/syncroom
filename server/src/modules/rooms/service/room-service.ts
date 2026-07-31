@@ -1,4 +1,4 @@
-﻿import { randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import {
   MAX_ROOM_PARTICIPANTS,
@@ -168,6 +168,34 @@ export type RemoveParticipantFailure = {
 export type RemoveParticipantResult =
   | RemoveParticipantSuccess
   | RemoveParticipantFailure;
+
+export type TransferHostInput = {
+  roomId: string;
+  actorParticipantId: string;
+  actorSocketId: string;
+  targetParticipantId: string;
+};
+
+export type TransferHostSuccess = {
+  success: true;
+  room: Room;
+  previousHost: Participant;
+  newHost: Participant;
+};
+
+export type TransferHostFailure = {
+  success: false;
+  code:
+    | "ROOM_NOT_FOUND"
+    | "PARTICIPANT_NOT_FOUND"
+    | "TRANSFER_FORBIDDEN"
+    | "INVALID_TRANSFER_TARGET";
+  message: string;
+};
+
+export type TransferHostResult =
+  | TransferHostSuccess
+  | TransferHostFailure;
 
 type PlaybackMutation = {
   status?: PlaybackState["status"];
@@ -568,6 +596,82 @@ export class RoomService {
       success: true,
       room,
       removedParticipant: target,
+    };
+  }
+
+  public transferHost(
+    input: TransferHostInput,
+  ): TransferHostResult {
+    const room = this.roomRepository.findById(
+      input.roomId,
+    );
+
+    if (room === null) {
+      return {
+        success: false,
+        code: "ROOM_NOT_FOUND",
+        message:
+          "The requested room does not exist.",
+      };
+    }
+
+    const actor = room.participants.get(
+      input.actorParticipantId,
+    );
+
+    const target = room.participants.get(
+      input.targetParticipantId,
+    );
+
+    if (
+      actor === undefined ||
+      target === undefined
+    ) {
+      return {
+        success: false,
+        code: "PARTICIPANT_NOT_FOUND",
+        message:
+          "The acting or target participant does not belong to this room.",
+      };
+    }
+
+    const isConnectedHost =
+      actor.id === room.hostParticipantId &&
+      actor.socketId === input.actorSocketId;
+
+    if (!isConnectedHost) {
+      return {
+        success: false,
+        code: "TRANSFER_FORBIDDEN",
+        message:
+          "Only the connected room host can transfer ownership.",
+      };
+    }
+
+    if (target.id === room.hostParticipantId) {
+      return {
+        success: false,
+        code: "INVALID_TRANSFER_TARGET",
+        message:
+          "Target participant is already the room host.",
+      };
+    }
+
+    const now = new Date().toISOString();
+
+    actor.role = PARTICIPANT_ROLES.MODERATOR;
+    target.role = PARTICIPANT_ROLES.HOST;
+    room.hostParticipantId = target.id;
+    room.roomVersion += 1;
+    room.updatedAt = now;
+
+    this.roomRepository.save(room);
+
+    return {
+      success: true,
+      room,
+      previousHost: actor,
+      newHost: target,
     };
   }
 

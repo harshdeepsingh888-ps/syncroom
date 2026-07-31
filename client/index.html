@@ -19,6 +19,15 @@
     />
 
     <title>SyncRoom — Watch Together</title>
+    <script>
+      (function() {
+        try {
+          var stored = localStorage.getItem('syncroom_theme');
+          var theme = stored || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {}
+      })();
+    </script>
   </head>
 
   <body>

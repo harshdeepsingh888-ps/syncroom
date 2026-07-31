@@ -43,6 +43,7 @@ import type {
   PlaybackUpdatedEvent,
   RealtimeErrorEvent,
   RemoveParticipantResponse,
+  TransferHostResponse,
 } from "../../types/realtime";
 
 import { RoleBadge } from "../../components/common/role-badge";
@@ -63,7 +64,8 @@ type AcknowledgementEventName =
   | "room:seek"
   | "room:change-video"
   | "room:assign-role"
-  | "room:remove-participant";
+  | "room:remove-participant"
+  | "room:transfer-host";
 
 type RuntimeAcknowledgementSocket = {
   emit: (
@@ -75,7 +77,35 @@ type RuntimeAcknowledgementSocket = {
 
 const acknowledgementTimeoutMilliseconds = 5_000;
 
+type Theme = "dark" | "light";
+
+function getInitialTheme(): Theme {
+  try {
+    const stored = localStorage.getItem("syncroom_theme");
+    if (stored === "dark" || stored === "light") {
+      return stored;
+    }
+    if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+  } catch {}
+  return "dark";
+}
+
 function App() {
+  const [theme, setTheme] = useState<Theme>(getInitialTheme);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    try {
+      localStorage.setItem("syncroom_theme", theme);
+    } catch {}
+  }, [theme]);
+
+  function handleToggleTheme(): void {
+    setTheme((current) => (current === "dark" ? "light" : "dark"));
+  }
+
   const [entryMode, setEntryMode] =
     useState<EntryMode>("create");
 
@@ -831,6 +861,44 @@ function App() {
     }
   }
 
+  async function handleTransferHost(
+    targetParticipantId: string,
+  ): Promise<void> {
+    if (!activeRoom) {
+      return;
+    }
+
+    setFormError(null);
+    setRoomNotice(null);
+
+    try {
+      const response =
+        await emitWithAcknowledgement<TransferHostResponse>(
+          "room:transfer-host",
+          {
+            roomId: activeRoom.roomId,
+            actorParticipantId: activeRoom.participantId,
+            targetParticipantId,
+          },
+        );
+
+      if (!response.success) {
+        setFormError(response.message);
+        return;
+      }
+
+      setRoomNotice(
+        `Transferred host role to ${response.newHost.displayName}.`,
+      );
+    } catch (error) {
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : "Host transfer failed.",
+      );
+    }
+  }
+
   async function handleCopyRoomId(): Promise<void> {
     if (!activeRoom) {
       return;
@@ -870,6 +938,8 @@ function App() {
     <main className="app-shell">
       <AppHeader
         connectionStatus={connectionStatus}
+        theme={theme}
+        onToggleTheme={handleToggleTheme}
       />
 
       {activeRoom ? (
@@ -915,6 +985,7 @@ function App() {
           }
           onAssignRole={handleAssignRole}
           onRemoveParticipant={handleRemoveParticipant}
+          onTransferHost={handleTransferHost}
         />
       ) : (
         <LandingView
@@ -946,10 +1017,14 @@ function App() {
 
 type AppHeaderProps = {
   connectionStatus: ConnectionStatus;
+  theme: Theme;
+  onToggleTheme: () => void;
 };
 
 function AppHeader({
   connectionStatus,
+  theme,
+  onToggleTheme,
 }: AppHeaderProps) {
   return (
     <header className="site-header">
@@ -973,9 +1048,29 @@ function AppHeader({
         </span>
       </a>
 
-      <ConnectionBadge
-        status={connectionStatus}
-      />
+      <div className="header-actions">
+        <button
+          type="button"
+          className="theme-toggle-button"
+          aria-label={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          title={theme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+          onClick={onToggleTheme}
+        >
+          {theme === "dark" ? (
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+              <path d="M12 7c-2.76 0-5 2.24-5 5s2.24 5 5 5 5-2.24 5-5-2.24-5-5-5zM2 13h2c.55 0 1-.45 1-1s-.45-1-1-1H2c-.55 0-1 .45-1 1s.45 1 1 1zm18 0h2c.55 0 1-.45 1-1s-.45-1-1-1h-2c-.55 0-1 .45-1 1s.45 1 1 1zM11 2v2c0 .55.45 1 1 1s1-.45 1-1V2c0-.55-.45-1-1-1s-1 .45-1 1zm0 18v2c0 .55.45 1 1 1s1-.45 1-1v-2c0-.55-.45-1-1-1s-1 .45-1 1zM5.99 4.58c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41L5.99 4.58zm12.37 12.37c-.39-.39-1.03-.39-1.41 0s-.39 1.03 0 1.41l1.06 1.06c.39.39 1.03.39 1.41 0s.39-1.03 0-1.41l-1.06-1.06zm1.06-10.96c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06zM7.05 18.36c.39-.39.39-1.03 0-1.41s-1.03-.39-1.41 0l-1.06 1.06c-.39.39-.39 1.03 0 1.41s1.03.39 1.41 0l1.06-1.06z"/>
+            </svg>
+          ) : (
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
+              <path d="M12 3c-4.97 0-9 4.03-9 9 0 4.97 4.03 9 9 9 3.74 0 6.96-2.28 8.35-5.54-1.2.53-2.52.84-3.9.84-5.25 0-9.5-4.25-9.5-9.5 0-1.38.31-2.7.84-3.9C15.28 3.04 12.06 3 12 3z"/>
+            </svg>
+          )}
+        </button>
+
+        <ConnectionBadge
+          status={connectionStatus}
+        />
+      </div>
     </header>
   );
 }
@@ -1336,6 +1431,9 @@ type RoomWorkspaceProps = {
   onRemoveParticipant: (
     targetParticipantId: string,
   ) => Promise<void>;
+  onTransferHost: (
+    targetParticipantId: string,
+  ) => Promise<void>;
 };
 
 function RoomWorkspace({
@@ -1353,6 +1451,7 @@ function RoomWorkspace({
   onSeek,
   onAssignRole,
   onRemoveParticipant,
+  onTransferHost,
 }: RoomWorkspaceProps) {
   const playerRef =
     useRef<YouTubePlayerHandle>(null);
@@ -1382,6 +1481,9 @@ function RoomWorkspace({
   const [isDiscoveryOpen, setIsDiscoveryOpen] =
     useState(false);
 
+  const [isFullscreen, setIsFullscreen] =
+    useState(false);
+
   const [
     pendingAssignTargetId,
     setPendingAssignTargetId,
@@ -1391,6 +1493,51 @@ function RoomWorkspace({
     pendingRemoveTargetId,
     setPendingRemoveTargetId,
   ] = useState<string | null>(null);
+
+  const [
+    pendingTransferTargetId,
+    setPendingTransferTargetId,
+  ] = useState<string | null>(null);
+
+  useEffect(() => {
+    function handleFullscreenChange(): void {
+      const fullscreenEl =
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement;
+
+      setIsFullscreen(Boolean(fullscreenEl));
+    }
+
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+      document.removeEventListener("webkitfullscreenchange", handleFullscreenChange);
+    };
+  }, []);
+
+  function handleToggleFullscreen(): void {
+    const playerContainer = document.querySelector(".youtube-player-container");
+
+    if (!playerContainer) {
+      return;
+    }
+
+    if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+      if (playerContainer.requestFullscreen) {
+        void playerContainer.requestFullscreen();
+      } else if ((playerContainer as any).webkitRequestFullscreen) {
+        (playerContainer as any).webkitRequestFullscreen();
+      }
+    } else {
+      if (document.exitFullscreen) {
+        void document.exitFullscreen();
+      } else if ((document as any).webkitExitFullscreen) {
+        (document as any).webkitExitFullscreen();
+      }
+    }
+  }
 
   async function handleRoleAssign(
     targetParticipantId: string,
@@ -1434,6 +1581,31 @@ function RoomWorkspace({
       await onRemoveParticipant(targetParticipantId);
     } finally {
       setPendingRemoveTargetId(null);
+    }
+  }
+
+  async function handleHostTransfer(
+    targetParticipantId: string,
+    displayName: string,
+  ): Promise<void> {
+    if (pendingTransferTargetId !== null) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Transfer host privileges to ${displayName}?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    setPendingTransferTargetId(targetParticipantId);
+
+    try {
+      await onTransferHost(targetParticipantId);
+    } finally {
+      setPendingTransferTargetId(null);
     }
   }
 
@@ -1928,6 +2100,8 @@ function RoomWorkspace({
 
                     onSeek(positionSeconds);
                   }}
+                  isFullscreen={isFullscreen}
+                  onToggleFullscreen={handleToggleFullscreen}
                 />
 
                 <div className="live-sync-bar" role="status">
@@ -2045,8 +2219,10 @@ function RoomWorkspace({
           isHost={room.role === "host"}
           pendingAssignTargetId={pendingAssignTargetId}
           pendingRemoveTargetId={pendingRemoveTargetId}
+          pendingTransferTargetId={pendingTransferTargetId}
           onAssignRole={handleRoleAssign}
           onRemoveParticipant={handleParticipantRemoval}
+          onTransferHost={handleHostTransfer}
         />
       </div>
     </section>
@@ -2132,8 +2308,10 @@ type ParticipantActionMenuProps = {
   participant: Participant;
   isPendingAssign: boolean;
   isPendingRemove: boolean;
+  isPendingTransfer: boolean;
   onAssignRole: () => void;
   onRemoveParticipant: () => void;
+  onTransferHost: () => void;
   onClose: () => void;
 };
 
@@ -2142,8 +2320,10 @@ function ParticipantActionMenu({
   participant,
   isPendingAssign,
   isPendingRemove,
+  isPendingTransfer,
   onAssignRole,
   onRemoveParticipant,
+  onTransferHost,
   onClose,
 }: ParticipantActionMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
@@ -2153,7 +2333,7 @@ function ParticipantActionMenu({
     left: number;
   }>(() => {
     const menuWidth = 180;
-    const menuHeight = 96;
+    const menuHeight = 128;
     const gap = 8;
 
     const hasSpaceBelow =
@@ -2178,7 +2358,7 @@ function ParticipantActionMenu({
 
     const rect = menuRef.current.getBoundingClientRect();
     const menuWidth = rect.width || 180;
-    const menuHeight = rect.height || 96;
+    const menuHeight = rect.height || 128;
     const gap = 8;
 
     const hasSpaceBelow =
@@ -2227,7 +2407,7 @@ function ParticipantActionMenu({
         type="button"
         className="menu-item"
         role="menuitem"
-        disabled={isPendingAssign || isPendingRemove}
+        disabled={isPendingAssign || isPendingRemove || isPendingTransfer}
         onClick={onAssignRole}
       >
         {isPendingAssign
@@ -2239,9 +2419,19 @@ function ParticipantActionMenu({
 
       <button
         type="button"
+        className="menu-item"
+        role="menuitem"
+        disabled={isPendingAssign || isPendingRemove || isPendingTransfer}
+        onClick={onTransferHost}
+      >
+        {isPendingTransfer ? "Transferring…" : "Transfer Host"}
+      </button>
+
+      <button
+        type="button"
         className="menu-item menu-item--danger"
         role="menuitem"
-        disabled={isPendingAssign || isPendingRemove}
+        disabled={isPendingAssign || isPendingRemove || isPendingTransfer}
         onClick={onRemoveParticipant}
       >
         {isPendingRemove ? "Removing…" : "Remove Member"}
@@ -2256,11 +2446,16 @@ type ParticipantsPanelProps = {
   isHost: boolean;
   pendingAssignTargetId: string | null;
   pendingRemoveTargetId: string | null;
+  pendingTransferTargetId: string | null;
   onAssignRole: (
     targetParticipantId: string,
     role: "moderator" | "participant",
   ) => void;
   onRemoveParticipant: (
+    targetParticipantId: string,
+    displayName: string,
+  ) => void;
+  onTransferHost: (
     targetParticipantId: string,
     displayName: string,
   ) => void;
@@ -2271,8 +2466,10 @@ function ParticipantsPanel({
   isHost,
   pendingAssignTargetId,
   pendingRemoveTargetId,
+  pendingTransferTargetId,
   onAssignRole,
   onRemoveParticipant,
+  onTransferHost,
 }: ParticipantsPanelProps) {
   const [activeMenuState, setActiveMenuState] = useState<{
     participantId: string;
@@ -2342,6 +2539,9 @@ function ParticipantsPanel({
             const isPendingRemoveThisParticipant =
               pendingRemoveTargetId === participant.id;
 
+            const isPendingTransferThisParticipant =
+              pendingTransferTargetId === participant.id;
+
             const isMenuOpen =
               activeMenuState?.participantId === participant.id;
 
@@ -2383,7 +2583,8 @@ function ParticipantsPanel({
                         aria-haspopup="true"
                         disabled={
                           pendingAssignTargetId !== null ||
-                          pendingRemoveTargetId !== null
+                          pendingRemoveTargetId !== null ||
+                          pendingTransferTargetId !== null
                         }
                         onClick={(event) => {
                           const rect =
@@ -2420,6 +2621,9 @@ function ParticipantsPanel({
                           isPendingRemove={
                             isPendingRemoveThisParticipant
                           }
+                          isPendingTransfer={
+                            isPendingTransferThisParticipant
+                          }
                           onAssignRole={() => {
                             setActiveMenuState(null);
                             onAssignRole(
@@ -2427,6 +2631,13 @@ function ParticipantsPanel({
                               participant.role === "moderator"
                                 ? "participant"
                                 : "moderator",
+                            );
+                          }}
+                          onTransferHost={() => {
+                            setActiveMenuState(null);
+                            onTransferHost(
+                              participant.id,
+                              participant.displayName,
                             );
                           }}
                           onRemoveParticipant={() => {

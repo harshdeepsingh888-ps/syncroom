@@ -70,6 +70,60 @@
   -moz-osx-font-smoothing: grayscale;
 }
 
+[data-theme="light"] {
+  /* Warm Neutral Light Palette */
+  --background: #f8fafc;
+  --surface: #ffffff;
+  --surface-card: #ffffff;
+  --surface-hover: #f1f5f9;
+  --surface-elevated: #e2e8f0;
+  --surface-input: #ffffff;
+
+  /* Typography Contrast */
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #64748b;
+  --text-faint: #94a3b8;
+
+  /* Crisp Structure Borders */
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --border-focus: #059669;
+
+  /* Controlled Emerald Accents */
+  --accent: #059669;
+  --accent-hover: #047857;
+  --accent-active: #065f46;
+  --accent-soft: rgba(5, 150, 105, 0.1);
+  --accent-border: rgba(5, 150, 105, 0.3);
+
+  /* Status Indicators */
+  --success: #059669;
+  --success-strong: #047857;
+  --danger: #dc2626;
+  --danger-soft: rgba(220, 38, 38, 0.1);
+  --danger-border: rgba(220, 38, 38, 0.3);
+  --warning: #d97706;
+  --warning-strong: #b45309;
+  --warning-soft: rgba(217, 119, 6, 0.1);
+
+  /* Roles */
+  --role-host: #d97706;
+  --role-moderator: #0891b2;
+  --role-viewer: #64748b;
+
+  /* Elevation Shadows */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.04);
+  --shadow-lg: 0 12px 24px -4px rgba(0, 0, 0, 0.12), 0 4px 8px -2px rgba(0, 0, 0, 0.06);
+
+  color-scheme: light;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -78,7 +132,7 @@ html {
   min-width: 320px;
   min-height: 100%;
   background: var(--background);
-  color-scheme: dark;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
 
 body {
