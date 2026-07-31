@@ -1041,14 +1041,17 @@ function AppHeader({
 
         <span className="brand-copy">
           <strong>SyncRoom</strong>
-
-          <small>
+          <small className="brand-subtitle">
             Watch together, in sync
           </small>
         </span>
       </a>
 
       <div className="header-actions">
+        <ConnectionBadge
+          status={connectionStatus}
+        />
+
         <button
           type="button"
           className="theme-toggle-button"
@@ -1066,10 +1069,6 @@ function AppHeader({
             </svg>
           )}
         </button>
-
-        <ConnectionBadge
-          status={connectionStatus}
-        />
       </div>
     </header>
   );
@@ -1079,9 +1078,7 @@ type ConnectionBadgeProps = {
   status: ConnectionStatus;
 };
 
-function ConnectionBadge({
-  status,
-}: ConnectionBadgeProps) {
+function ConnectionBadge({ status }: ConnectionBadgeProps) {
   const label =
     status === "connected"
       ? "Realtime connected"
@@ -1089,36 +1086,60 @@ function ConnectionBadge({
         ? "Connecting"
         : "Disconnected";
 
+  const shortLabel =
+    status === "connected"
+      ? "Connected"
+      : status === "connecting"
+        ? "Connecting"
+        : "Offline";
+
   return (
     <div
       className={`connection-badge connection-badge--${status}`}
+      title={label}
+      aria-label={label}
     >
       <span className="connection-dot" />
-      {label}
+      <span className="connection-text-full">{label}</span>
+      <span className="connection-text-compact">{shortLabel}</span>
     </div>
   );
 }
 
-type LandingViewProps = {
-  entryMode: EntryMode;
-  displayName: string;
-  roomCode: string;
-  connectionStatus: ConnectionStatus;
-  error: string | null;
-  isSubmitting: boolean;
-  onEntryModeChange: (
-    mode: EntryMode,
-  ) => void;
-  onDisplayNameChange: (
-    value: string,
-  ) => void;
-  onRoomCodeChange: (
-    value: string,
-  ) => void;
-  onSubmit: (
-    event: FormEvent<HTMLFormElement>,
-  ) => void;
+type FeatureRowProps = {
+  icon: "timeline" | "shield" | "search";
+  accentColor: "emerald" | "amber" | "violet";
+  title: string;
+  description: string;
 };
+
+function FeatureRow({ icon, accentColor, title, description }: FeatureRowProps) {
+  return (
+    <div className={`feature-row feature-row--${accentColor}`}>
+      <div className="feature-row-icon" aria-hidden="true">
+        {icon === "timeline" && (
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" />
+          </svg>
+        )}
+        {icon === "shield" && (
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
+          </svg>
+        )}
+        {icon === "search" && (
+          <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor">
+            <path d="M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z" />
+          </svg>
+        )}
+      </div>
+      <div className="feature-row-content">
+        <h3>{title}</h3>
+        <p>{description}</p>
+      </div>
+    </div>
+  );
+}
 
 function AbstractSyncGraphic() {
   return (
@@ -1167,40 +1188,26 @@ function AbstractSyncGraphic() {
   );
 }
 
-type FeatureCardProps = {
-  icon: "play" | "users" | "shield";
-  accentColor: "emerald" | "amber";
-  title: string;
-  description: string;
+type LandingViewProps = {
+  entryMode: EntryMode;
+  displayName: string;
+  roomCode: string;
+  connectionStatus: ConnectionStatus;
+  error: string | null;
+  isSubmitting: boolean;
+  onEntryModeChange: (
+    mode: EntryMode,
+  ) => void;
+  onDisplayNameChange: (
+    value: string,
+  ) => void;
+  onRoomCodeChange: (
+    value: string,
+  ) => void;
+  onSubmit: (
+    event: FormEvent<HTMLFormElement>,
+  ) => void;
 };
-
-function FeatureCard({ icon, accentColor, title, description }: FeatureCardProps) {
-  return (
-    <div className={`feature-card feature-card--${accentColor}`}>
-      <div className="feature-icon" aria-hidden="true">
-        {icon === "play" && (
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M8 5v14l11-7z" />
-          </svg>
-        )}
-        {icon === "users" && (
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
-          </svg>
-        )}
-        {icon === "shield" && (
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm-2 16l-4-4 1.41-1.41L10 14.17l6.59-6.59L18 9l-8 8z" />
-          </svg>
-        )}
-      </div>
-      <div className="feature-text">
-        <h3>{title}</h3>
-        <p>{description}</p>
-      </div>
-    </div>
-  );
-}
 
 function LandingView({
   entryMode,
@@ -1215,42 +1222,44 @@ function LandingView({
   onSubmit,
 }: LandingViewProps) {
   return (
-    <section className="landing">
-      <div className="landing-copy">
-        <div className="eyebrow-pill">
-          <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
-            <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
-          </svg>
-          <span>SERVER-AUTHORITATIVE WATCH PARTIES</span>
+    <div className="landing">
+      <section className="landing-copy">
+        <div className="hero-header-group">
+          <div className="eyebrow-pill">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
+              <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+            </svg>
+            <span>SYNCHRONIZED WATCH PARTIES</span>
+          </div>
+
+          <h1 className="hero-title">
+            Watch together.<br />
+            <span className="hero-highlight">Stay perfectly in sync.</span>
+          </h1>
+
+          <p className="landing-description">
+            Create or join a room, find a video, and enjoy a synchronized watch experience with friends.
+          </p>
         </div>
 
-        <h1 className="hero-title">
-          Watch together.<br />
-          <span className="hero-highlight">Stay perfectly in sync.</span>
-        </h1>
-
-        <p className="landing-description">
-          Private rooms, role-based control, and real-time synchronization. One room. One timeline.
-        </p>
-
         <div className="feature-cards-row">
-          <FeatureCard
-            icon="play"
+          <FeatureRow
+            icon="timeline"
             accentColor="emerald"
-            title="Shared playback"
-            description="Everyone stays in sync"
+            title="Perfect synchronization"
+            description="Everyone follows the same room timeline when an authorized member plays, pauses, or seeks."
           />
-          <FeatureCard
-            icon="users"
-            accentColor="amber"
-            title="Role-based control"
-            description="Host controls playback"
-          />
-          <FeatureCard
+          <FeatureRow
             icon="shield"
-            accentColor="emerald"
-            title="Server authoritative"
-            description="Consistent for everyone"
+            accentColor="amber"
+            title="Room control that makes sense"
+            description="Hosts manage participants, appoint moderators, and transfer ownership when needed."
+          />
+          <FeatureRow
+            icon="search"
+            accentColor="violet"
+            title="YouTube discovery inside the room"
+            description="Search real YouTube results and choose the next shared video without leaving SyncRoom."
           />
         </div>
 
@@ -1258,13 +1267,13 @@ function LandingView({
 
         <div className="trust-footer">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor" aria-hidden="true">
-            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
+            <path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/>
           </svg>
-          <span>No account required • Temporary rooms • Built for small groups</span>
+          <span>No sign-up. No downloads. Just sync.</span>
         </div>
-      </div>
+      </section>
 
-      <div className="entry-card">
+      <aside className="entry-card">
         <div className="entry-tabs" role="tablist" aria-label="Room entry mode">
           <button
             type="button"
@@ -1385,21 +1394,21 @@ function LandingView({
               <path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/>
             </svg>
           </button>
-        </form>
 
-        <div className="privacy-info-box">
-          <span className="info-icon" aria-hidden="true">
-            <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
-              <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
-            </svg>
-          </span>
-          <div className="info-text">
-            <strong>Rooms live only while participants remain connected.</strong>
-            <p>No sign-up required.</p>
+          <div className="privacy-info-box">
+            <span className="info-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor">
+                <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4z"/>
+              </svg>
+            </span>
+            <div className="info-text">
+              <strong>No sign-up required.</strong>
+              <p>Rooms live only while participants remain connected.</p>
+            </div>
           </div>
-        </div>
-      </div>
-    </section>
+        </form>
+      </aside>
+    </div>
   );
 }
 
