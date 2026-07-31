@@ -78,6 +78,12 @@ export function createApp(): express.Express {
           message: "An unexpected server error occurred.",
         },
       });
+      app.get("/version", (_request, response) => {
+  response.json({
+    version: "submission-polish",
+    deployedAt: new Date().toISOString(),
+  });
+});
     },
   );
 
