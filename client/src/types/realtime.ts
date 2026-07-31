@@ -14,8 +14,10 @@ export type Participant = {
 };
 
 export type PlaybackSnapshot = {
+  videoId: string | null;
   status: PlaybackStatus;
   positionSeconds: number;
+  playbackRate: number;
 };
 
 export type ActiveRoom = {
@@ -84,7 +86,74 @@ export type PlaybackCommandResponse =
       message: string;
     };
 
+export type ChangeVideoPayload = {
+  roomId: string;
+  participantId: string;
+  videoId: string;
+};
+
+export type ChangeVideoResponse =
+  | {
+      success: true;
+      roomId: string;
+      roomVersion: number;
+      playback: PlaybackSnapshot;
+    }
+  | {
+      success: false;
+      code: string;
+      message: string;
+    };
+
+export type AssignRolePayload = {
+  roomId: string;
+  actorParticipantId: string;
+  targetParticipantId: string;
+  role: Extract<
+    ParticipantRole,
+    "moderator" | "participant"
+  >;
+};
+
+export type AssignRoleResponse =
+  | {
+      success: true;
+      roomId: string;
+      roomVersion: number;
+      participant: Participant;
+    }
+  | {
+      success: false;
+      code: string;
+      message: string;
+    };
+
+export type RemoveParticipantPayload = {
+  roomId: string;
+  actorParticipantId: string;
+  targetParticipantId: string;
+};
+
+export type RemoveParticipantResponse =
+  | {
+      success: true;
+      roomId: string;
+      roomVersion: number;
+      removedParticipant: Participant;
+    }
+  | {
+      success: false;
+      code: string;
+      message: string;
+    };
+
 export type PlaybackUpdatedEvent = {
+  roomId: string;
+  roomVersion: number;
+  playback: PlaybackSnapshot;
+};
+
+export type VideoChangedEvent = {
   roomId: string;
   roomVersion: number;
   playback: PlaybackSnapshot;
@@ -101,6 +170,18 @@ export type ParticipantLeftEvent = {
   roomVersion: number;
   participant: Participant;
   disconnectedAt: string | null;
+};
+
+export type ParticipantRoleUpdatedEvent = {
+  roomId: string;
+  roomVersion: number;
+  participant: Participant;
+};
+
+export type ParticipantRemovedEvent = {
+  roomId: string;
+  roomVersion: number;
+  participant: Participant;
 };
 
 export type HostTransferredEvent = {

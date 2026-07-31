@@ -47,6 +47,7 @@ export type JoinRoomResult =
 export type UpdatePlaybackInput = {
   roomId: string;
   participantId: string;
+  actorSocketId: string;
   positionSeconds: number;
 };
 
@@ -67,6 +68,32 @@ export type UpdatePlaybackFailure = {
 export type UpdatePlaybackResult =
   | UpdatePlaybackSuccess
   | UpdatePlaybackFailure;
+
+ export type ChangeVideoInput = {
+  roomId: string;
+  participantId: string;
+  actorSocketId: string;
+  videoId: string;
+};
+
+export type ChangeVideoSuccess = {
+  success: true;
+  room: Room;
+};
+
+export type ChangeVideoFailure = {
+  success: false;
+  code:
+    | "ROOM_NOT_FOUND"
+    | "PARTICIPANT_NOT_FOUND"
+    | "PLAYBACK_FORBIDDEN"
+    | "INVALID_VIDEO_ID";
+  message: string;
+};
+
+export type ChangeVideoResult =
+  | ChangeVideoSuccess
+  | ChangeVideoFailure;
 
 export type AssignParticipantRoleInput = {
   roomId: string;
@@ -120,6 +147,32 @@ type PlaybackMutation = {
   positionSeconds: number;
 };
 
+export type RemoveParticipantInput = {
+  roomId: string;
+  actorParticipantId: string;
+  actorSocketId: string;
+  targetParticipantId: string;
+};
+
+export type RemoveParticipantSuccess = {
+  success: true;
+  room: Room;
+  removedParticipant: Participant;
+};
+
+export type RemoveParticipantFailure = {
+  success: false;
+  code:
+    | "ROOM_NOT_FOUND"
+    | "PARTICIPANT_NOT_FOUND"
+    | "REMOVE_FORBIDDEN"
+    | "HOST_SELF_REMOVAL_FORBIDDEN";
+  message: string;
+};
+
+export type RemoveParticipantResult =
+  | RemoveParticipantSuccess
+  | RemoveParticipantFailure;
 export class RoomService {
   public constructor(
     private readonly roomRepository: RoomRepository,
@@ -249,7 +302,91 @@ export class RoomService {
       positionSeconds: input.positionSeconds,
     });
   }
+public changeVideo(
+  input: ChangeVideoInput,
+): ChangeVideoResult {
+  const room = this.roomRepository.findById(
+    input.roomId,
+  );
 
+  if (room === null) {
+    return {
+      success: false,
+      code: "ROOM_NOT_FOUND",
+      message: "The requested room does not exist.",
+    };
+  }
+
+  const participant =
+    room.participants.get(
+      input.participantId,
+    );
+
+  if (participant === undefined) {
+    return {
+      success: false,
+      code: "PARTICIPANT_NOT_FOUND",
+      message:
+        "The participant does not belong to this room.",
+    };
+  }
+
+  if (
+  participant.socketId !==
+  input.actorSocketId
+) {
+  return {
+    success: false,
+    code: "PLAYBACK_FORBIDDEN",
+    message:
+      "The connected socket is not authorized to act as this participant.",
+  };
+}
+
+  const canChangeVideo =
+    participant.id === room.hostParticipantId ||
+    participant.role ===
+      PARTICIPANT_ROLES.MODERATOR;
+
+  if (!canChangeVideo) {
+    return {
+      success: false,
+      code: "PLAYBACK_FORBIDDEN",
+      message:
+        "Only the room host or a moderator can change the shared video.",
+    };
+  }
+
+  const videoId = input.videoId.trim();
+
+  if (videoId.length === 0) {
+    return {
+      success: false,
+      code: "INVALID_VIDEO_ID",
+      message: "Video ID is required.",
+    };
+  }
+
+  const now = new Date().toISOString();
+
+  room.playback.videoId = videoId;
+  room.playback.positionSeconds = 0;
+  room.playback.status =
+    PLAYBACK_STATUSES.PAUSED;
+  room.playback.updatedAt = now;
+  room.playback.updatedByParticipantId =
+    participant.id;
+
+  room.roomVersion += 1;
+  room.updatedAt = now;
+
+  this.roomRepository.save(room);
+
+  return {
+    success: true,
+    room,
+  };
+}
   public assignParticipantRole(
     input: AssignParticipantRoleInput,
   ): AssignParticipantRoleResult {
@@ -332,6 +469,84 @@ export class RoomService {
       participant: target,
     };
   }
+
+public removeParticipant(
+  input: RemoveParticipantInput,
+): RemoveParticipantResult {
+  const room = this.roomRepository.findById(
+    input.roomId,
+  );
+
+  if (room === null) {
+    return {
+      success: false,
+      code: "ROOM_NOT_FOUND",
+      message:
+        "The requested room does not exist.",
+    };
+  }
+
+  const actor = room.participants.get(
+    input.actorParticipantId,
+  );
+
+  const target = room.participants.get(
+    input.targetParticipantId,
+  );
+
+  if (
+    actor === undefined ||
+    target === undefined
+  ) {
+    return {
+      success: false,
+      code: "PARTICIPANT_NOT_FOUND",
+      message:
+        "The acting or target participant does not belong to this room.",
+    };
+  }
+
+  const isConnectedHost =
+    actor.id === room.hostParticipantId &&
+    actor.socketId === input.actorSocketId;
+
+  if (!isConnectedHost) {
+    return {
+      success: false,
+      code: "REMOVE_FORBIDDEN",
+      message:
+        "Only the connected room host can remove participants.",
+    };
+  }
+
+  if (
+    target.id === room.hostParticipantId
+  ) {
+    return {
+      success: false,
+      code: "HOST_SELF_REMOVAL_FORBIDDEN",
+      message:
+        "The room host cannot remove themselves.",
+    };
+  }
+
+  room.participants.delete(target.id);
+
+  const now = new Date().toISOString();
+
+  target.disconnectedAt = now;
+
+  room.roomVersion += 1;
+  room.updatedAt = now;
+
+  this.roomRepository.save(room);
+
+  return {
+    success: true,
+    room,
+    removedParticipant: target,
+  };
+}
 
   public disconnectParticipant(
     input: DisconnectParticipantInput,
@@ -455,6 +670,18 @@ export class RoomService {
           "Only the room host or a moderator can control playback.",
       };
     }
+
+    if (
+  participant.socketId !==
+  input.actorSocketId
+) {
+  return {
+    success: false,
+    code: "PLAYBACK_FORBIDDEN",
+    message:
+      "The connected socket is not authorized to act as this participant.",
+  };
+}
 
     const now = new Date().toISOString();
 
