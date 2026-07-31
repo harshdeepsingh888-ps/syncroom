@@ -7,7 +7,22 @@ import { roomService } from "../../modules/rooms/room-container.js";
 const playbackCommandPayloadSchema = z.object({
   roomId: z.string().trim().min(1),
   participantId: z.string().trim().min(1),
-  positionSeconds: z.number().finite().nonnegative(),
+  positionSeconds: z
+    .number()
+    .finite()
+    .nonnegative(),
+});
+
+const changeVideoPayloadSchema = z.object({
+  roomId: z.string().trim().min(1),
+  participantId: z.string().trim().min(1),
+  videoId: z
+    .string()
+    .trim()
+    .regex(
+      /^[a-zA-Z0-9_-]{11}$/,
+      "A valid 11-character YouTube video ID is required.",
+    ),
 });
 
 type PlaybackCommandSuccess = {
@@ -35,7 +50,36 @@ type PlaybackCommandAck = (
   response: PlaybackCommandResponse,
 ) => void;
 
-type PlaybackCommand = "play" | "pause" | "seek";
+type ChangeVideoSuccess = {
+  success: true;
+  roomId: string;
+  roomVersion: number;
+  playback: PlaybackState;
+};
+
+type ChangeVideoFailure = {
+  success: false;
+  code:
+    | "INVALID_PAYLOAD"
+    | "ROOM_NOT_FOUND"
+    | "PARTICIPANT_NOT_FOUND"
+    | "PLAYBACK_FORBIDDEN"
+    | "INVALID_VIDEO_ID";
+  message: string;
+};
+
+type ChangeVideoResponse =
+  | ChangeVideoSuccess
+  | ChangeVideoFailure;
+
+type ChangeVideoAck = (
+  response: ChangeVideoResponse,
+) => void;
+
+type PlaybackCommand =
+  | "play"
+  | "pause"
+  | "seek";
 
 type HandlePlaybackCommandInput = {
   socket: Socket;
@@ -44,10 +88,21 @@ type HandlePlaybackCommandInput = {
   command: PlaybackCommand;
 };
 
-export function registerPlaybackHandlers(socket: Socket): void {
+type PlaybackUpdatedEvent = {
+  roomId: string;
+  roomVersion: number;
+  playback: PlaybackState;
+};
+
+export function registerPlaybackHandlers(
+  socket: Socket,
+): void {
   socket.on(
     "room:play",
-    (payload: unknown, ack: unknown): void => {
+    (
+      payload: unknown,
+      ack: unknown,
+    ): void => {
       handlePlaybackCommand({
         socket,
         payload,
@@ -59,7 +114,10 @@ export function registerPlaybackHandlers(socket: Socket): void {
 
   socket.on(
     "room:pause",
-    (payload: unknown, ack: unknown): void => {
+    (
+      payload: unknown,
+      ack: unknown,
+    ): void => {
       handlePlaybackCommand({
         socket,
         payload,
@@ -71,7 +129,10 @@ export function registerPlaybackHandlers(socket: Socket): void {
 
   socket.on(
     "room:seek",
-    (payload: unknown, ack: unknown): void => {
+    (
+      payload: unknown,
+      ack: unknown,
+    ): void => {
       handlePlaybackCommand({
         socket,
         payload,
@@ -80,16 +141,35 @@ export function registerPlaybackHandlers(socket: Socket): void {
       });
     },
   );
+
+  socket.on(
+    "room:change-video",
+    (
+      payload: unknown,
+      ack: unknown,
+    ): void => {
+      handleChangeVideo(
+        socket,
+        payload,
+        ack,
+      );
+    },
+  );
 }
 
 function handlePlaybackCommand(
   input: HandlePlaybackCommandInput,
 ): void {
-  const { socket, payload, command } = input;
+  const {
+    socket,
+    payload,
+    command,
+  } = input;
 
-  const ack = getPlaybackCommandAck(input.ack);
+  const ack =
+    getPlaybackCommandAck(input.ack);
 
-  if (!ack) {
+  if (ack === null) {
     socket.emit("realtime:error", {
       code: "ACK_REQUIRED",
       message:
@@ -100,7 +180,9 @@ function handlePlaybackCommand(
   }
 
   const parsedPayload =
-    playbackCommandPayloadSchema.safeParse(payload);
+    playbackCommandPayloadSchema.safeParse(
+      payload,
+    );
 
   if (!parsedPayload.success) {
     ack({
@@ -119,11 +201,13 @@ function handlePlaybackCommand(
     positionSeconds,
   } = parsedPayload.data;
 
-  const result = executePlaybackCommand(command, {
-    roomId,
-    participantId,
-    positionSeconds,
-  });
+  const result =
+    executePlaybackCommand(command, {
+      roomId,
+      participantId,
+      actorSocketId: socket.id,
+      positionSeconds,
+    });
 
   if (!result.success) {
     ack({
@@ -135,22 +219,131 @@ function handlePlaybackCommand(
     return;
   }
 
-  const playbackUpdatedEvent = {
-    roomId: result.room.id,
-    roomVersion: result.room.roomVersion,
-    playback: result.room.playback,
-  };
+  const playbackUpdatedEvent:
+    PlaybackUpdatedEvent = {
+      roomId: result.room.id,
+      roomVersion:
+        result.room.roomVersion,
+      playback: result.room.playback,
+    };
 
+  /*
+   * The command sender receives the updated
+   * state through the acknowledgement.
+   */
   ack({
     success: true,
     ...playbackUpdatedEvent,
   });
 
+  /*
+   * Every other room member receives the
+   * authoritative playback state.
+   */
+  broadcastPlaybackUpdate(
+    socket,
+    playbackUpdatedEvent,
+  );
+}
+
+function handleChangeVideo(
+  socket: Socket,
+  payload: unknown,
+  ackValue: unknown,
+): void {
+  const ack =
+    getChangeVideoAck(ackValue);
+
+  if (ack === null) {
+    socket.emit("realtime:error", {
+      code: "ACK_REQUIRED",
+      message:
+        "Changing the shared video requires an acknowledgement callback.",
+    });
+
+    return;
+  }
+
+  const parsedPayload =
+    changeVideoPayloadSchema.safeParse(
+      payload,
+    );
+
+  if (!parsedPayload.success) {
+    ack({
+      success: false,
+      code: "INVALID_PAYLOAD",
+      message:
+        "Room ID, participant ID, and a valid YouTube video ID are required.",
+    });
+
+    return;
+  }
+
+  const result =
+    roomService.changeVideo({
+      ...parsedPayload.data,
+      actorSocketId: socket.id,
+    });
+
+  if (!result.success) {
+    ack({
+      success: false,
+      code: result.code,
+      message: result.message,
+    });
+
+    return;
+  }
+
+  const playbackUpdatedEvent:
+    PlaybackUpdatedEvent = {
+      roomId: result.room.id,
+      roomVersion:
+        result.room.roomVersion,
+      playback: result.room.playback,
+    };
+
+  /*
+   * The host/moderator who changed the video
+   * receives the new state through the ack.
+   */
+  ack({
+    success: true,
+    ...playbackUpdatedEvent,
+  });
+
+  /*
+   * Video changes are playback-state changes.
+   * Broadcast the same event that the frontend
+   * already handles for play, pause and seek.
+   */
+  broadcastPlaybackUpdate(
+    socket,
+    playbackUpdatedEvent,
+  );
+
+  /*
+   * Keep the specialised event for any future
+   * UI that wants to show a video-change notice.
+   */
   socket
     .to(result.room.id)
     .emit(
-      "playback:updated",
+      "video:changed",
       playbackUpdatedEvent,
+    );
+}
+
+function broadcastPlaybackUpdate(
+  socket: Socket,
+  event: PlaybackUpdatedEvent,
+): void {
+  socket
+    .to(event.roomId)
+    .emit(
+      "playback:updated",
+      event,
     );
 }
 
@@ -159,6 +352,7 @@ function executePlaybackCommand(
   payload: {
     roomId: string;
     participantId: string;
+    actorSocketId: string;
     positionSeconds: number;
   },
 ) {
@@ -182,4 +376,14 @@ function getPlaybackCommandAck(
   }
 
   return value as PlaybackCommandAck;
+}
+
+function getChangeVideoAck(
+  value: unknown,
+): ChangeVideoAck | null {
+  if (typeof value !== "function") {
+    return null;
+  }
+
+  return value as ChangeVideoAck;
 }

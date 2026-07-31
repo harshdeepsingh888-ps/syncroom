@@ -4,6 +4,10 @@ import {
 } from "socket.io-client";
 
 import type {
+  AssignRolePayload,
+  AssignRoleResponse,
+  ChangeVideoPayload,
+  ChangeVideoResponse,
   CreateRoomPayload,
   CreateRoomResponse,
   HostTransferredEvent,
@@ -11,10 +15,17 @@ import type {
   JoinRoomResponse,
   ParticipantJoinedEvent,
   ParticipantLeftEvent,
+  ParticipantRemovedEvent,
+  ParticipantRoleUpdatedEvent,
   PlaybackCommandPayload,
   PlaybackCommandResponse,
   PlaybackUpdatedEvent,
   RealtimeErrorEvent,
+  RemoveParticipantPayload,
+  RemoveParticipantResponse,
+  TransferHostPayload,
+  TransferHostResponse,
+  VideoChangedEvent,
 } from "../types/realtime";
 
 type ClientToServerEvents = {
@@ -52,6 +63,34 @@ type ClientToServerEvents = {
       response: PlaybackCommandResponse,
     ) => void,
   ) => void;
+
+  "room:change-video": (
+    payload: ChangeVideoPayload,
+    acknowledge: (
+      response: ChangeVideoResponse,
+    ) => void,
+  ) => void;
+
+  "room:assign-role": (
+    payload: AssignRolePayload,
+    acknowledge: (
+      response: AssignRoleResponse,
+    ) => void,
+  ) => void;
+
+  "room:remove-participant": (
+    payload: RemoveParticipantPayload,
+    acknowledge: (
+      response: RemoveParticipantResponse,
+    ) => void,
+  ) => void;
+
+  "room:transfer-host": (
+    payload: TransferHostPayload,
+    acknowledge: (
+      response: TransferHostResponse,
+    ) => void,
+  ) => void;
 };
 
 type ServerToClientEvents = {
@@ -63,12 +102,24 @@ type ServerToClientEvents = {
     payload: ParticipantLeftEvent,
   ) => void;
 
+  "participant:role-updated": (
+    payload: ParticipantRoleUpdatedEvent,
+  ) => void;
+
+  "participant:removed": (
+    payload: ParticipantRemovedEvent,
+  ) => void;
+
   "host:transferred": (
     payload: HostTransferredEvent,
   ) => void;
 
   "playback:updated": (
     payload: PlaybackUpdatedEvent,
+  ) => void;
+
+  "video:changed": (
+    payload: VideoChangedEvent,
   ) => void;
 
   "realtime:error": (

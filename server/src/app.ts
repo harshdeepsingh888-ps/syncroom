@@ -9,6 +9,7 @@ import pino from "pino";
 import { pinoHttp } from "pino-http";
 
 import { env } from "./config/env.js";
+import { youtubeRouter } from "./routes/youtube-router.js";
 
 const logger = pino({
   name: "syncroom-server",
@@ -43,6 +44,15 @@ export function createApp(): express.Express {
       timestamp: new Date().toISOString(),
     });
   });
+
+  app.get("/version", (_request: Request, response: Response) => {
+    response.status(200).json({
+      version: "submission-polish",
+      deployedAt: new Date().toISOString(),
+    });
+  });
+
+  app.use("/api/youtube", youtubeRouter);
 
   app.use((_request: Request, response: Response) => {
     response.status(404).json({

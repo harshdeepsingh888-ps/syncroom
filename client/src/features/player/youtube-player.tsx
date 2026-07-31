@@ -12,10 +12,17 @@ export type YouTubePlayerHandle = {
   play: () => void;
   pause: () => void;
   seekTo: (positionSeconds: number) => void;
-  loadVideo: (videoId: string, startSeconds?: number) => void;
+  loadVideo: (
+    videoId: string,
+    startSeconds?: number,
+  ) => void;
   getCurrentTime: () => number;
   getPlayerState: () => YT.PlayerState | null;
+
+  // NEW
+  getDuration: () => number;
 };
+
 
 type YouTubePlayerProps = {
   videoId: string;
@@ -23,7 +30,9 @@ type YouTubePlayerProps = {
   className?: string;
   controls?: boolean;
   onReady?: () => void;
-  onStateChange?: (state: YT.PlayerState) => void;
+  onStateChange?: (
+    state: YT.PlayerState,
+  ) => void;
   onError?: (errorCode: number) => void;
 };
 
@@ -47,19 +56,29 @@ export const YouTubePlayer = forwardRef<
   },
   forwardedRef,
 ) {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const playerRef = useRef<YT.Player | null>(null);
-  const lastLoadedVideoRef = useRef<string | null>(null);
-  const callbacksRef = useRef<PlayerCallbacks>({
-    onReady,
-    onStateChange,
-    onError,
-  });
+  const containerRef =
+    useRef<HTMLDivElement | null>(null);
 
-  const [isReady, setIsReady] = useState(false);
-  const [initializationError, setInitializationError] = useState<
-    string | null
-  >(null);
+  const playerRef =
+    useRef<YT.Player | null>(null);
+
+  const callbacksRef =
+    useRef<PlayerCallbacks>({
+      onReady,
+      onStateChange,
+      onError,
+    });
+
+  const initialStartSecondsRef =
+    useRef(startSeconds);
+
+  const [isReady, setIsReady] =
+    useState(false);
+
+  const [
+    initializationError,
+    setInitializationError,
+  ] = useState<string | null>(null);
 
   callbacksRef.current = {
     onReady,
@@ -79,113 +98,200 @@ export const YouTubePlayer = forwardRef<
       },
 
       seekTo(positionSeconds) {
-        if (!Number.isFinite(positionSeconds)) {
+        if (
+          !Number.isFinite(positionSeconds)
+        ) {
           return;
         }
 
-        playerRef.current?.seekTo(Math.max(0, positionSeconds), true);
+        playerRef.current?.seekTo(
+          Math.max(0, positionSeconds),
+          true,
+        );
       },
 
-      loadVideo(nextVideoId, nextStartSeconds = 0) {
-        if (!nextVideoId.trim()) {
+      loadVideo(
+        nextVideoId,
+        nextStartSeconds = 0,
+      ) {
+        const normalizedVideoId =
+          nextVideoId.trim();
+
+        if (!normalizedVideoId) {
           return;
         }
 
         playerRef.current?.loadVideoById({
-          videoId: nextVideoId,
-          startSeconds: Math.max(0, nextStartSeconds),
+          videoId: normalizedVideoId,
+          startSeconds: Math.max(
+            0,
+            nextStartSeconds,
+          ),
         });
-
-        lastLoadedVideoRef.current = nextVideoId;
       },
 
       getCurrentTime() {
-        return playerRef.current?.getCurrentTime() ?? 0;
+        return (
+          playerRef.current?.getCurrentTime() ??
+          0
+        );
       },
 
       getPlayerState() {
-        return playerRef.current?.getPlayerState() ?? null;
+        return (
+          playerRef.current?.getPlayerState() ??
+          null
+        );
       },
+      getDuration() {
+  return (
+    playerRef.current?.getDuration() ?? 0
+  );
+},
     }),
     [],
   );
 
- useEffect(() => {
-  let cancelled = false;
+  useEffect(() => {
+    let cancelled = false;
 
-  async function initializePlayer() {
-    if (playerRef.current) {
+    async function initializePlayer(): Promise<void> {
+      if (
+        playerRef.current ||
+        !containerRef.current
+      ) {
+        return;
+      }
+
+      setInitializationError(null);
+      setIsReady(false);
+
+      try {
+        const youtube =
+          await loadYouTubeApi();
+
+        if (
+          cancelled ||
+          !containerRef.current
+        ) {
+          return;
+        }
+
+        playerRef.current =
+          new youtube.Player(
+            containerRef.current,
+            {
+              videoId,
+
+              playerVars: {
+                autoplay: 0,
+                cc_load_policy: 0,
+                cc_lang_pref: "en",
+                controls: controls ? 1 : 0,
+                disablekb: controls ? 0 : 1,
+                enablejsapi: 1,
+                hl: "en",
+                playsinline: 1,
+                rel: 0,
+                start: Math.floor(
+                  Math.max(
+                    0,
+                    initialStartSecondsRef.current,
+                  ),
+                ),
+              },
+
+              events: {
+                onReady: () => {
+                  if (cancelled) {
+                    return;
+                  }
+
+                  const initialPosition =
+                    Math.max(
+                      0,
+                      initialStartSecondsRef.current,
+                    );
+
+                  if (initialPosition > 0) {
+                    playerRef.current?.seekTo(
+                      initialPosition,
+                      true,
+                    );
+                  }
+
+                  setIsReady(true);
+
+                  callbacksRef.current.onReady?.();
+                },
+
+                onStateChange: (event) => {
+                  callbacksRef.current.onStateChange?.(
+                    event.data,
+                  );
+                },
+
+                onError: (event) => {
+                  callbacksRef.current.onError?.(
+                    event.data,
+                  );
+                },
+              },
+            },
+          );
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Unable to initialize the YouTube player.";
+
+        setInitializationError(message);
+        setIsReady(false);
+      }
+    }
+
+    void initializePlayer();
+
+    return () => {
+      cancelled = true;
+
+      playerRef.current?.destroy();
+      playerRef.current = null;
+    };
+  }, [controls]);
+
+  useEffect(() => {
+    if (
+      !isReady ||
+      !playerRef.current ||
+      !videoId.trim()
+    ) {
       return;
     }
 
-    try {
-      const youtube = await loadYouTubeApi();
-
-      if (cancelled || !containerRef.current) {
-        return;
-      }
-
-      playerRef.current = new youtube.Player(containerRef.current, {
-        videoId,
-        playerVars: {
-          autoplay: 0,
-          controls: controls ? 1 : 0,
-          disablekb: controls ? 0 : 1,
-          enablejsapi: 1,
-          playsinline: 1,
-          rel: 0,
-          start: Math.floor(Math.max(0, startSeconds)),
-        },
-        events: {
-          onReady: () => {
-            if (cancelled) {
-              return;
-            }
-
-            lastLoadedVideoRef.current = videoId;
-            setIsReady(true);
-            callbacksRef.current.onReady?.();
-          },
-
-          onStateChange: (event) => {
-            callbacksRef.current.onStateChange?.(event.data);
-          },
-
-          onError: (event) => {
-            callbacksRef.current.onError?.(event.data);
-          },
-        },
-      });
-    } catch (error) {
-      if (cancelled) {
-        return;
-      }
-
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Unable to initialize the YouTube player.";
-
-      setInitializationError(message);
-    }
-  }
-
-  void initializePlayer();
-
-  return () => {
-    cancelled = true;
-    setIsReady(false);
-
-    playerRef.current?.destroy();
-    playerRef.current = null;
-    lastLoadedVideoRef.current = null;
-  };
-}, [controls, startSeconds, videoId]);
+    playerRef.current.cueVideoById({
+      videoId,
+      startSeconds: Math.max(
+        0,
+        startSeconds,
+      ),
+    });
+  }, [videoId, isReady]);
 
   if (initializationError) {
     return (
-      <div className={className} role="alert">
-        <p>Unable to load the YouTube player.</p>
+      <div
+        className={className}
+        role="alert"
+      >
+        <p>
+          Unable to load the YouTube player.
+        </p>
+
         <p>{initializationError}</p>
       </div>
     );
@@ -193,11 +299,13 @@ export const YouTubePlayer = forwardRef<
 
   return (
     <div className={className}>
-      {!isReady && (
+      {!isReady ? (
         <div aria-live="polite">
-          <p>Loading YouTube player...</p>
+          <p>
+            Loading YouTube player...
+          </p>
         </div>
-      )}
+      ) : null}
 
       <div ref={containerRef} />
     </div>
