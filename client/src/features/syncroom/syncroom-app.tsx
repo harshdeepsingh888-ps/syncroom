@@ -1468,6 +1468,11 @@ function RoomWorkspace({
   const [isPlayerReady, setIsPlayerReady] =
     useState(false);
 
+  const [
+    hasEnabledSynchronizedPlayback,
+    setHasEnabledSynchronizedPlayback,
+  ] = useState(canControlPlayback);
+
   const [videoDuration, setVideoDuration] =
     useState(0);
 
@@ -1507,6 +1512,12 @@ function RoomWorkspace({
     pendingTransferTargetId,
     setPendingTransferTargetId,
   ] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (canControlPlayback) {
+      setHasEnabledSynchronizedPlayback(true);
+    }
+  }, [canControlPlayback]);
 
   useEffect(() => {
     function handleFullscreenChange(): void {
@@ -1742,10 +1753,14 @@ function RoomWorkspace({
       );
     }
 
-    if (
-      room.playback.status === "playing"
-    ) {
-      player.play();
+    if (room.playback.status === "playing") {
+      if (
+        canControlPlayback ||
+        hasEnabledSynchronizedPlayback
+      ) {
+        player.play();
+      }
+
       return;
     }
 
@@ -1761,7 +1776,76 @@ function RoomWorkspace({
     room.playback.status,
     room.playback.playbackRate,
     room.playback.updatedAt,
+    canControlPlayback,
+    hasEnabledSynchronizedPlayback,
   ]);
+
+  function handleEnableSynchronizedPlayback(): void {
+    const player = playerRef.current;
+
+    if (!player || !isPlayerReady) {
+      return;
+    }
+
+    setHasEnabledSynchronizedPlayback(true);
+
+    const updatedAtMilliseconds =
+      Date.parse(room.playback.updatedAt);
+
+    const elapsedSeconds =
+      room.playback.status === "playing" &&
+      Number.isFinite(updatedAtMilliseconds)
+        ? Math.max(
+            0,
+            (Date.now() -
+              updatedAtMilliseconds) /
+              1_000,
+          )
+        : 0;
+
+    const playbackRate =
+      Number.isFinite(
+        room.playback.playbackRate,
+      ) &&
+      room.playback.playbackRate > 0
+        ? room.playback.playbackRate
+        : 1;
+
+    const authoritativePosition =
+      Math.max(
+        0,
+        room.playback.positionSeconds +
+          elapsedSeconds * playbackRate,
+      );
+
+    player.seekTo(authoritativePosition);
+
+    setDisplayedPositionSeconds(
+      authoritativePosition,
+    );
+
+    if (room.playback.status === "playing") {
+      player.play();
+      return;
+    }
+
+    /*
+     * A real playVideo() call must happen directly inside the participant's
+     * click gesture. Merely setting a flag and calling pauseVideo() does not
+     * unlock future programmatic playback in Chromium-based browsers.
+     *
+     * Start playback briefly from the click handler, then restore the room's
+     * authoritative paused state. Later Host/Moderator play broadcasts can
+     * resume the player reliably.
+     */
+    player.play();
+
+    window.setTimeout(() => {
+      if (room.playback.status === "paused") {
+        player.pause();
+      }
+    }, 120);
+  }
 
   function handleVideoSubmit(
     event: FormEvent<HTMLFormElement>,
@@ -2014,17 +2098,46 @@ function RoomWorkspace({
                           ), url("https://i.ytimg.com/vi/${activeVideoId}/hqdefault.jpg")`,
                         }}
                       >
-                        <span className="play-overlay-badge" aria-hidden="true">
-                          <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor">
+                        <span
+                          className="play-overlay-badge"
+                          aria-hidden="true"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            width="28"
+                            height="28"
+                            fill="currentColor"
+                          >
                             <path d="M8 5v14l11-7z" />
                           </svg>
+                        </span>
+                      </button>
+                    ) : !hasEnabledSynchronizedPlayback ? (
+                      <button
+                        type="button"
+                        className="youtube-player-lock participant-playback-activation"
+                        aria-label="Enable synchronized playback"
+                        title="Enable synchronized playback"
+                        disabled={!isPlayerReady}
+                        onClick={
+                          handleEnableSynchronizedPlayback
+                        }
+                        style={{
+                          backgroundImage: `linear-gradient(
+                            rgba(0, 0, 0, 0.2),
+                            rgba(0, 0, 0, 0.55)
+                          ), url("https://i.ytimg.com/vi/${activeVideoId}/hqdefault.jpg")`,
+                        }}
+                      >
+                        <span className="player-lock-chip">
+                          Enable synchronized playback
                         </span>
                       </button>
                     ) : (
                       <div
                         className="youtube-player-lock"
-                        aria-label="Use the synchronized controls below the video"
-                        title="Use the synchronized room controls below"
+                        aria-label="Waiting for the host to resume playback"
+                        title="Waiting for the host"
                         style={{
                           backgroundImage: `linear-gradient(
                             rgba(0, 0, 0, 0.18),
@@ -2033,15 +2146,30 @@ function RoomWorkspace({
                         }}
                       >
                         <span className="player-lock-chip">
-                          Use the controls below
+                          Waiting for Host
                         </span>
                       </div>
                     )
+                  ) : !canControlPlayback &&
+                    !hasEnabledSynchronizedPlayback ? (
+                    <button
+                      type="button"
+                      className="youtube-player-lock participant-playback-activation"
+                      aria-label="Enable synchronized playback"
+                      title="Enable synchronized playback"
+                      disabled={!isPlayerReady}
+                      onClick={
+                        handleEnableSynchronizedPlayback
+                      }
+                    >
+                      <span className="player-lock-chip">
+                        Enable synchronized playback
+                      </span>
+                    </button>
                   ) : (
                     <div
                       className="youtube-player-lock"
-                      aria-label="Use the synchronized controls below the video"
-                      title="Use the synchronized room controls below"
+                      aria-hidden="true"
                       style={{
                         position: "absolute",
                         inset: 0,
